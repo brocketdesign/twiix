@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Masonry from 'react-masonry-css';
 import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
+import { debouncedFetch, exponentialBackoff } from '../utils/apiUtils';
+import { REDDIT_API_CONFIG, MEDIA_CONFIG, ERROR_MESSAGES } from '../config/redditApi';
 // Icon imports
 import { TbDownload, TbHome, TbSearch, TbPuzzle, TbTag } from 'react-icons/tb';
 
@@ -193,8 +195,8 @@ function MemeGallery({ subreddit = 'memes' }) {
   const [renderedMedia, setRenderedMedia] = useState({});
   const [thumbnails, setThumbnails] = useState({});
   
-  // Remove state variables for pagination and set as constants
-  const memesPerPage = 10; // Fixed number of memes to fetch per request
+  // Increase batch size for better efficiency while staying under Reddit's rate limits
+  const memesPerPage = REDDIT_API_CONFIG.MEMES_PER_REQUEST;
 
   // Track seen post IDs to avoid duplicates
   const [seenIds, setSeenIds] = useState(new Set());
@@ -208,17 +210,49 @@ function MemeGallery({ subreddit = 'memes' }) {
   // New state to track already fetched URL paths to prevent duplicate requests
   const [fetchedUrlPaths, setFetchedUrlPaths] = useState(new Set());
   
+  // Add request throttling state
+  const [lastRequestTime, setLastRequestTime] = useState(0);
+  const requestCooldown = REDDIT_API_CONFIG.REQUEST_COOLDOWN;
+  
+  // Cache for Reddit API responses
+  const apiCache = useRef(new Map());
+  const cacheExpiry = REDDIT_API_CONFIG.CACHE_EXPIRY;
+  
   const observer = useRef();
+  const throttleTimeoutRef = useRef();
+  
   const lastMemeElementRef = useCallback(node => {
     if (isLoading) return;
     if (observer.current) observer.current.disconnect();
+    
+    // Create intersection observer with optimized options
     observer.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && hasMore) {
-        loadMoreMemes();
+      if (entries[0].isIntersecting && hasMore && !isLoading) {
+        // Throttle requests to prevent spam
+        const now = Date.now();
+        if (now - lastRequestTime >= requestCooldown) {
+          loadMoreMemes();
+        } else {
+          // Schedule the request for when cooldown expires
+          const remainingCooldown = requestCooldown - (now - lastRequestTime);
+          if (throttleTimeoutRef.current) {
+            clearTimeout(throttleTimeoutRef.current);
+          }
+          throttleTimeoutRef.current = setTimeout(() => {
+            if (hasMore && !isLoading) {
+              loadMoreMemes();
+            }
+          }, remainingCooldown);
+        }
       }
+    }, {
+      // Optimize intersection observer options
+      threshold: REDDIT_API_CONFIG.INTERSECTION_THRESHOLD,
+      rootMargin: REDDIT_API_CONFIG.INTERSECTION_ROOT_MARGIN
     });
+    
     if (node) observer.current.observe(node);
-  }, [isLoading, hasMore]);
+  }, [isLoading, hasMore, lastRequestTime]);
   
   // Add a new state variable to track if the first page has been loaded
   const [firstPageLoaded, setFirstPageLoaded] = useState(false);
@@ -265,8 +299,41 @@ function MemeGallery({ subreddit = 'memes' }) {
     setSeenUrls(new Set()); // Reset seen URLs when changing subreddit
     setFetchedUrlPaths(new Set()); // Reset fetched URL paths when changing subreddit
     setFirstPageLoaded(false); // Reset first page loaded state
+    setRenderedMedia({}); // Clear rendered media cache
+    setThumbnails({}); // Clear thumbnails cache
+    
+    // Clear API cache for this subreddit
+    const keysToDelete = [];
+    for (const key of apiCache.current.keys()) {
+      if (key.startsWith(subreddit + '-')) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => apiCache.current.delete(key));
+    
+    // Clear any pending throttle timeouts
+    if (throttleTimeoutRef.current) {
+      clearTimeout(throttleTimeoutRef.current);
+      throttleTimeoutRef.current = null;
+    }
+    
     fetchMemes();
   }, [subreddit]);
+  
+  // Cleanup effect for component unmount
+  useEffect(() => {
+    return () => {
+      // Clean up observer
+      if (observer.current) {
+        observer.current.disconnect();
+      }
+      
+      // Clear throttle timeout
+      if (throttleTimeoutRef.current) {
+        clearTimeout(throttleTimeoutRef.current);
+      }
+    };
+  }, []);
   
   // Helper to extract the best thumbnail for a meme
   const extractThumbnailUrl = (meme) => {
@@ -294,10 +361,26 @@ function MemeGallery({ subreddit = 'memes' }) {
       return;
     }
     
+    // Throttle requests to avoid being flagged by Reddit
+    const now = Date.now();
+    if (now - lastRequestTime < requestCooldown) {
+      console.log('Request throttled, waiting for cooldown');
+      return;
+    }
+    
     // Construct the URL path
     const urlPath = after 
       ? `https://www.reddit.com/r/${subreddit}.json?after=${after}&limit=${memesPerPage}&include_over_18=1` 
       : `https://www.reddit.com/r/${subreddit}.json?limit=${memesPerPage}&include_over_18=1`;
+    
+    // Check cache first
+    const cacheKey = `${subreddit}-${after || 'initial'}`;
+    const cachedData = apiCache.current.get(cacheKey);
+    if (cachedData && (now - cachedData.timestamp < cacheExpiry)) {
+      console.log(`Using cached data for ${cacheKey}`);
+      processFetchedData(cachedData.data);
+      return;
+    }
     
     // Check if this URL path has already been fetched
     if (fetchedUrlPaths.has(urlPath)) {
@@ -306,86 +389,121 @@ function MemeGallery({ subreddit = 'memes' }) {
     }
     
     setIsLoading(true);
+    setLastRequestTime(now);
     
     // Add this URL path to the set of fetched URLs
     setFetchedUrlPaths(prevFetchedUrls => new Set([...prevFetchedUrls, urlPath]));
       
-    fetch(urlPath)
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`Reddit API responded with status ${res.status}`);
-        }
-        return res.json();
-      })
+    // Use exponential backoff for resilient API calls
+    exponentialBackoff(async () => {
+      const response = await debouncedFetch(urlPath);
+      return response.json();
+    }, 3, 1000)
       .then(data => {
-        if (data.data && data.data.children) {
-          if (data.data.children.length === 0) {
-            setHasMore(false);
-          } else {
-            
-            // Filter out duplicates by ID, title, and URL
-            const newMemes = data.data.children.filter(meme => 
-              !seenIds.has(meme.data.id) && 
-              !seenTitles.has(meme.data.title) && 
-              (!meme.data.url || !seenUrls.has(meme.data.url))
-            );
-            
-            
-            // Update seenIds with new meme IDs
-            const updatedSeenIds = new Set(seenIds);
-            newMemes.forEach(meme => updatedSeenIds.add(meme.data.id));
-            setSeenIds(updatedSeenIds);
-            
-            // Update seenTitles with new meme titles
-            const updatedSeenTitles = new Set(seenTitles);
-            newMemes.forEach(meme => updatedSeenTitles.add(meme.data.title));
-            setSeenTitles(updatedSeenTitles);
-            
-            // Update seenUrls with new meme URLs if they exist
-            const updatedSeenUrls = new Set(seenUrls);
-            newMemes.forEach(meme => {
-              if (meme.data.url) {
-                updatedSeenUrls.add(meme.data.url);
-              }
-            });
-            setSeenUrls(updatedSeenUrls);
-            
-            // Precompute and set thumbnails for new memes before rendering media
-            const newThumbnails = {};
-            newMemes.forEach(meme => {
-              const thumb = extractThumbnailUrl(meme);
-              if (thumb) newThumbnails[meme.data.id] = thumb;
-            });
-            if (Object.keys(newThumbnails).length > 0) {
-              setThumbnails(prev => ({ ...prev, ...newThumbnails }));
-            }
-
-            // Add new unique memes
-            setMemes(prevMemes => [...prevMemes, ...newMemes]);
-            setAfter(data.data.after);
-            setHasMore(!!data.data.after);
-            
-            // Set firstPageLoaded to true after the initial load
-            if (!after) {
-              setFirstPageLoaded(true);
-            }
-          }
-        } else {
-          console.error('Invalid data structure from Reddit API:', data);
-          setHasMore(false);
+        if (!data) return; // Handle null response
+        
+        // Cache the successful response
+        apiCache.current.set(cacheKey, {
+          data: data,
+          timestamp: now
+        });
+        
+        // Clean up old cache entries
+        if (apiCache.current.size > REDDIT_API_CONFIG.MAX_CACHE_SIZE) {
+          const oldestKey = apiCache.current.keys().next().value;
+          apiCache.current.delete(oldestKey);
         }
-        setIsLoading(false);
+        
+        processFetchedData(data);
       })
       .catch(error => {
         console.error('Error fetching data from Reddit API:', error);
         setIsLoading(false);
-        setHasMore(false);
+        
+        // If rate limited, set longer backoff
+        if (error.message.includes('Rate limited')) {
+          console.log('Rate limited - implementing backoff strategy');
+          setHasMore(false); // Temporarily disable more loading
+          
+          // Re-enable after configured backoff time
+          setTimeout(() => {
+            setHasMore(true);
+          }, REDDIT_API_CONFIG.RATE_LIMIT_BACKOFF);
+        } else {
+          setHasMore(false);
+        }
       });
+  };
+
+  const processFetchedData = (data) => {
+    if (data.data && data.data.children) {
+      if (data.data.children.length === 0) {
+        setHasMore(false);
+      } else {
+        
+        // Filter out duplicates by ID, title, and URL
+        const newMemes = data.data.children.filter(meme => 
+          !seenIds.has(meme.data.id) && 
+          !seenTitles.has(meme.data.title) && 
+          (!meme.data.url || !seenUrls.has(meme.data.url))
+        );
+        
+        
+        // Update seenIds with new meme IDs
+        const updatedSeenIds = new Set(seenIds);
+        newMemes.forEach(meme => updatedSeenIds.add(meme.data.id));
+        setSeenIds(updatedSeenIds);
+        
+        // Update seenTitles with new meme titles
+        const updatedSeenTitles = new Set(seenTitles);
+        newMemes.forEach(meme => updatedSeenTitles.add(meme.data.title));
+        setSeenTitles(updatedSeenTitles);
+        
+        // Update seenUrls with new meme URLs if they exist
+        const updatedSeenUrls = new Set(seenUrls);
+        newMemes.forEach(meme => {
+          if (meme.data.url) {
+            updatedSeenUrls.add(meme.data.url);
+          }
+        });
+        setSeenUrls(updatedSeenUrls);
+        
+        // Precompute and set thumbnails for new memes before rendering media
+        const newThumbnails = {};
+        newMemes.forEach(meme => {
+          const thumb = extractThumbnailUrl(meme);
+          if (thumb) newThumbnails[meme.data.id] = thumb;
+        });
+        if (Object.keys(newThumbnails).length > 0) {
+          setThumbnails(prev => ({ ...prev, ...newThumbnails }));
+        }
+
+        // Add new unique memes
+        setMemes(prevMemes => [...prevMemes, ...newMemes]);
+        setAfter(data.data.after);
+        setHasMore(!!data.data.after);
+        
+        // Set firstPageLoaded to true after the initial load
+        if (!after) {
+          setFirstPageLoaded(true);
+        }
+      }
+    } else {
+      console.error('Invalid data structure from Reddit API:', data);
+      setHasMore(false);
+    }
+    setIsLoading(false);
   };
   
   const loadMoreMemes = () => {
-    if (!isLoading && hasMore && after) { // Ensure 'after' has a value
-      fetchMemes();
+    // Enhanced condition checking with throttling
+    if (!isLoading && hasMore && after) {
+      const now = Date.now();
+      if (now - lastRequestTime >= requestCooldown) {
+        fetchMemes();
+      } else {
+        console.log('Load more request throttled');
+      }
     }
   };
 
@@ -501,18 +619,54 @@ function MemeGallery({ subreddit = 'memes' }) {
   // Remove the useEffect that was fetching RedGifs URLs with loading limits
   // since we're now doing lazy loading in the LazyRedGif component
 
+  // Optimized media rendering - only render what's not already rendered
   useEffect(() => {
-    // Render media for each meme and store the results
-    memes.forEach(async (meme) => {
-      if (!renderedMedia[meme.data.id]) {
-        const media = await renderMedia(meme);
-        setRenderedMedia(prev => ({
-          ...prev,
-          [meme.data.id]: media
-        }));
-      }
-    });
-  }, [memes, renderMedia, renderedMedia]);
+    // Batch process new memes that don't have rendered media
+    const newMemes = memes.filter(meme => !renderedMedia[meme.data.id]);
+    
+    if (newMemes.length > 0) {
+      // Process in smaller batches to prevent blocking
+      const batchSize = REDDIT_API_CONFIG.MEDIA_BATCH_SIZE;
+      const batchDelay = REDDIT_API_CONFIG.MEDIA_BATCH_DELAY;
+      let currentBatch = 0;
+      
+      const processBatch = async () => {
+        const start = currentBatch * batchSize;
+        const end = Math.min(start + batchSize, newMemes.length);
+        const batch = newMemes.slice(start, end);
+        
+        const batchResults = {};
+        await Promise.all(
+          batch.map(async (meme) => {
+            try {
+              const media = await renderMedia(meme);
+              batchResults[meme.data.id] = media;
+            } catch (error) {
+              console.error(`Error rendering media for meme ${meme.data.id}:`, error);
+              batchResults[meme.data.id] = <p>Media not available</p>;
+            }
+          })
+        );
+        
+        setRenderedMedia(prev => ({ ...prev, ...batchResults }));
+        
+        currentBatch++;
+        if (currentBatch * batchSize < newMemes.length) {
+          // Schedule next batch with a small delay to prevent blocking
+          setTimeout(processBatch, batchDelay);
+        }
+      };
+      
+      processBatch();
+    }
+  }, [memes, renderMedia]);
+
+  // Add debugging effect for development
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`MemeGallery Debug - Subreddit: ${subreddit}, Memes loaded: ${memes.length}, Has more: ${hasMore}, Loading: ${isLoading}`);
+    }
+  }, [subreddit, memes.length, hasMore, isLoading]);
 
   // Add a debugging effect to check for duplicates after rendering
   useEffect(() => {
@@ -685,7 +839,7 @@ function MemeGallery({ subreddit = 'memes' }) {
       {isLoading && <div className="loading">Loading more memes...</div>}
       {!hasMore && memes.length > 0 && (
         <div className="end-message">
-          <p>No more memes available from this subreddit</p>
+          <p>{ERROR_MESSAGES.NO_MORE_CONTENT}</p>
           <button 
             onClick={() => {
               setMemes([]);
@@ -695,6 +849,25 @@ function MemeGallery({ subreddit = 'memes' }) {
               setSeenTitles(new Set());
               setSeenUrls(new Set()); // Reset seen URLs as well
               setFetchedUrlPaths(new Set()); // Reset fetched URL paths when refreshing
+              setRenderedMedia({}); // Clear rendered media cache
+              setThumbnails({}); // Clear thumbnails cache
+              setLastRequestTime(0); // Reset throttling
+              
+              // Clear throttle timeout
+              if (throttleTimeoutRef.current) {
+                clearTimeout(throttleTimeoutRef.current);
+                throttleTimeoutRef.current = null;
+              }
+              
+              // Clear cache for current subreddit
+              const keysToDelete = [];
+              for (const key of apiCache.current.keys()) {
+                if (key.startsWith(subreddit + '-')) {
+                  keysToDelete.push(key);
+                }
+              }
+              keysToDelete.forEach(key => apiCache.current.delete(key));
+              
               fetchMemes();
             }}
             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2"

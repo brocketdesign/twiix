@@ -2,13 +2,78 @@ const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
 
+// In-memory cache for Reddit API responses
+const cache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Rate limiting for Reddit API calls
+const rateLimiter = new Map();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 30; // Conservative limit
+
+// Helper function to check rate limit
+const isRateLimited = (clientId) => {
+  const now = Date.now();
+  const clientRequests = rateLimiter.get(clientId) || [];
+  
+  // Remove requests older than the window
+  const recentRequests = clientRequests.filter(timestamp => now - timestamp < RATE_LIMIT_WINDOW);
+  
+  if (recentRequests.length >= MAX_REQUESTS_PER_WINDOW) {
+    return true;
+  }
+  
+  // Add current request
+  recentRequests.push(now);
+  rateLimiter.set(clientId, recentRequests);
+  
+  return false;
+};
+
+// Helper function to get cache key
+const getCacheKey = (subreddit, sort, limit, after = '') => {
+  return `${subreddit}-${sort}-${limit}-${after}`;
+};
+
 // Reddit API endpoints
 router.get('/reddit/:subreddit', async (req, res) => {
   const { subreddit } = req.params;
-  const { sort = 'hot', limit = 50 } = req.query;
+  const { sort = 'hot', limit = 25, after = '' } = req.query;
+  const clientId = req.ip || 'unknown';
+
+  // Check rate limit
+  if (isRateLimited(clientId)) {
+    console.log(`[Reddit] Rate limited client: ${clientId}`);
+    return res.status(429).json({ 
+      error: 'Rate limit exceeded. Please wait before making more requests.',
+      retryAfter: 60
+    });
+  }
+
+  // Check cache first
+  const cacheKey = getCacheKey(subreddit, sort, limit, after);
+  const cachedData = cache.get(cacheKey);
+  
+  if (cachedData && (Date.now() - cachedData.timestamp < CACHE_DURATION)) {
+    console.log(`[Reddit] Serving cached data for ${cacheKey}`);
+    return res.json(cachedData.data);
+  }
 
   try {
-    const response = await fetch(`https://www.reddit.com/r/${subreddit}/${sort}.json?limit=${limit}`);
+    const url = after 
+      ? `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=${limit}&after=${after}&include_over_18=1`
+      : `https://www.reddit.com/r/${subreddit}/${sort}.json?limit=${limit}&include_over_18=1`;
+      
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'RedditMemeGallery/1.0 (Server-side proxy for rate limiting)'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Reddit API responded with status ${response.status}`);
+    }
+    
     const data = await response.json();
     const posts = data.data?.children || [];
 
@@ -25,8 +90,26 @@ router.get('/reddit/:subreddit', async (req, res) => {
         (post.media && (post.media.reddit_video || post.media.oembed))
       );
 
+    const responseData = { 
+      media: mediaPosts, 
+      after: data.data?.after,
+      before: data.data?.before 
+    };
+
+    // Cache the response
+    cache.set(cacheKey, {
+      data: responseData,
+      timestamp: Date.now()
+    });
+
+    // Clean up old cache entries periodically
+    if (cache.size > 100) {
+      const oldestKey = cache.keys().next().value;
+      cache.delete(oldestKey);
+    }
+
     console.log(`[Reddit] Fetched ${mediaPosts.length} media posts from r/${subreddit}`);
-    res.json({ media: mediaPosts });
+    res.json(responseData);
   } catch (error) {
     console.error(`[Reddit] Error fetching from r/${subreddit}:`, error);
     res.status(500).json({ error: 'Failed to fetch Reddit media posts' });
