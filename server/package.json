@@ -1,7 +1,7 @@
 {
-  "name": "reddit-meme-gallery-server",
+  "name": "reddgallery-server",
   "version": "1.0.0",
-  "description": "Backend server for Reddit Meme Gallery",
+  "description": "Backend server for reddgallery",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

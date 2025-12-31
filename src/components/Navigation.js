@@ -9,7 +9,7 @@ function Navigation() {
         <Link to="/" className="mr-6 flex items-center space-x-2">
           <img src="/logo.png" alt="Logo" className="h-8 w-8 object-contain" />
           <span className="hidden font-bold sm:inline-block text-foreground">
-            RedditGallery
+            reddgallery
           </span>
         </Link>
         <nav className="flex flex-1 items-center space-x-6 text-sm font-medium">

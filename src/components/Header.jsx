@@ -51,7 +51,7 @@ const Header = () => {
                 <a href="/" style={logoStyle}>
                     <RedditIcon style={iconStyle} />
                     <Typography variant="h6">
-                        My Meme Gallery
+                        reddgallery
                     </Typography>
                 </a>
 

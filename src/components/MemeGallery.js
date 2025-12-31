@@ -762,7 +762,7 @@ function MemeGallery({ subreddit = 'memes' }) {
   return (
     <div className="container mx-auto px-4 py-8">
       <Helmet>
-        <title>r/{subreddit} - Reddit Meme Gallery</title>
+        <title>r/{subreddit} - reddgallery NSFW Viewer</title>
       </Helmet>
       <h2 className="text-3xl font-bold mb-8 text-center text-foreground tracking-tight">r/{subreddit}</h2>
       

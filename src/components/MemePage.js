@@ -410,7 +410,7 @@ function MemePage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <Helmet>
-        <title>r/{subreddit} - {meme ? meme.data.title : 'Meme Gallery'}</title>
+        <title>{meme ? meme.data.title : 'reddgallery'} - r/{subreddit} NSFW</title>
       </Helmet>
       {/* Centered content container */}
       <div className="mx-auto max-w-4xl">
