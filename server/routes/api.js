@@ -79,21 +79,25 @@ router.get('/reddit/:subreddit', async (req, res) => {
 
     // Filter for posts with media (images or videos)
     const mediaPosts = posts
-      .map(post => post.data)
-      .filter(post =>
-        // Images: direct image, preview, or gallery
-        post.post_hint === 'image' ||
-        (post.preview && post.preview.images && post.preview.images.length > 0) ||
-        (post.is_gallery && post.media_metadata) ||
-        // Videos: Reddit-hosted or embedded
-        post.is_video ||
-        (post.media && (post.media.reddit_video || post.media.oembed))
-      );
+      .filter(post => {
+        const postData = post.data;
+        return (
+          // Images: direct image, preview, or gallery
+          postData.post_hint === 'image' ||
+          (postData.preview && postData.preview.images && postData.preview.images.length > 0) ||
+          (postData.is_gallery && postData.media_metadata) ||
+          // Videos: Reddit-hosted or embedded
+          postData.is_video ||
+          (postData.media && (postData.media.reddit_video || postData.media.oembed))
+        );
+      });
 
     const responseData = { 
-      media: mediaPosts, 
-      after: data.data?.after,
-      before: data.data?.before 
+      data: {
+        children: mediaPosts,
+        after: data.data?.after,
+        before: data.data?.before 
+      }
     };
 
     // Cache the response

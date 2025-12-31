@@ -29,7 +29,6 @@ export const debouncedFetch = (url, options = {}) => {
   const requestPromise = fetch(url, {
     ...options,
     headers: {
-      'User-Agent': 'RedditMemeGallery/1.0 (https://reddit-meme-gallery.netlify.app)',
       ...options.headers
     }
   })

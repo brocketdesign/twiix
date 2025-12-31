@@ -47,7 +47,7 @@ const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" 
   };
 
   return (
-    <div className="video-container" ref={containerRef}>
+    <div className="relative w-full bg-black aspect-video" ref={containerRef}>
       <video 
         ref={videoRef}
         controls 
@@ -55,7 +55,7 @@ const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" 
         loop 
         muted 
         autoPlay // Add autoPlay attribute
-        className="media-content"
+        className="w-full h-full object-contain"
         onError={handleVideoError}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
@@ -325,6 +325,14 @@ function MemePage() {
           videoType={videoType}
         />
       );
+    } else if (meme.data.is_self || meme.data.post_hint === 'self') {
+        setRenderedMedia(
+            <div key={`${meme.data.id}-text`} className="text-content" style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '8px', width: '100%' }}>
+                <p style={{ whiteSpace: 'pre-wrap', fontSize: '1rem', lineHeight: '1.6' }}>
+                    {meme.data.selftext}
+                </p>
+            </div>
+        );
     } else if (url) {
       // For images
       setRenderedMedia(
@@ -364,26 +372,20 @@ function MemePage() {
   }, [subreddit]);
 
   if (isLoading) {
-    return <div className="loading-container flex justify-center items-center p-10">
-      <div className="loading-spinner">
-        <svg viewBox="0 0 32 32" width="32" height="32">
-          <circle cx="16" cy="16" r="14" fill="none" strokeWidth="4" stroke="#fff" strokeDasharray="87.96459430051421 87.96459430051421" transform="rotate(120 16 16)">
-            <animateTransform attributeName="transform" attributeType="XML" type="rotate" dur="0.75s" from="0 16 16" to="360 16 16" repeatCount="indefinite"/>
-          </circle>
-        </svg>
-      </div>
-      <span className="ml-3">Loading meme...</span>
+    return <div className="flex h-[50vh] items-center justify-center p-10 text-muted-foreground">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      <span className="ml-3 font-medium">Loading meme...</span>
     </div>;
   }
 
   if (error) {
     return (
-      <div className="error-container p-5 text-center">
-        <h2 className="text-xl font-bold mb-4">Error loading meme</h2>
-        <p className="text-red-500 mb-4">{error}</p>
+      <div className="p-5 text-center">
+        <h2 className="text-xl font-bold mb-4 text-destructive">Error loading meme</h2>
+        <p className="text-muted-foreground mb-4">{error}</p>
         <button 
           onClick={() => navigate(`/r/${subreddit}`)}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
         >
           Back to r/{subreddit}
         </button>
@@ -393,11 +395,11 @@ function MemePage() {
 
   if (!meme) {
     return (
-      <div className="not-found p-5 text-center">
+      <div className="p-5 text-center">
         <h2 className="text-xl font-bold mb-4">Meme not found</h2>
         <button 
           onClick={() => navigate(`/r/${subreddit}`)}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
         >
           Back to r/{subreddit}
         </button>
@@ -406,62 +408,62 @@ function MemePage() {
   }
 
   return (
-    <div className="meme-page">
+    <div className="container mx-auto px-4 py-8">
       <Helmet>
         <title>r/{subreddit} - {meme ? meme.data.title : 'Meme Gallery'}</title>
       </Helmet>
       {/* Centered content container */}
-      <div className="max-w-4xl mx-auto">
-        <div className="navigation-header mb-4">
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-6">
           <button 
             onClick={() => navigate(`/r/${subreddit}`)}
-            className="flex items-center text-blue-500 hover:text-blue-700"
+            className="flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
           >
             <span className="mr-2">←</span> Back to r/{subreddit}
           </button>
         </div>
         
-        <h1 className="text-2xl font-bold mb-4">{meme.data.title}</h1>
+        <h1 className="text-2xl font-bold mb-6 leading-tight">{meme.data.title}</h1>
         
-        <div className="meme-content mb-6 flex justify-center">
-          {renderedMedia || <div className="loading">Loading media...</div>}
+        <div className="mb-8 flex justify-center overflow-hidden rounded-xl border border-border bg-black shadow-sm">
+          {renderedMedia || <div className="flex h-64 w-full items-center justify-center text-muted-foreground">Loading media...</div>}
         </div>
         
-        <div className="meme-details bg-white shadow-md rounded-lg p-6">
-          <p className="text-gray-700 mb-2">
-            <span role="img" aria-label="user" className="mr-1">👤</span> Posted by <span className="font-semibold">u/{meme.data.author}</span>
+        <div className="rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm">
+          <p className="mb-2 flex items-center text-muted-foreground">
+            <span role="img" aria-label="user" className="mr-2">👤</span> Posted by <span className="ml-1 font-semibold text-foreground">u/{meme.data.author}</span>
           </p>
-          <p className="text-gray-700 mb-2">
-            <span role="img" aria-label="date" className="mr-1">📅</span> {new Date(meme.data.created_utc * 1000).toLocaleString()}
+          <p className="mb-2 flex items-center text-muted-foreground">
+            <span role="img" aria-label="date" className="mr-2">📅</span> {new Date(meme.data.created_utc * 1000).toLocaleString()}
           </p>
           {meme.data.score !== undefined && (
-            <p className="text-gray-700 mb-2">
-              <span role="img" aria-label="upvotes" className="mr-1">⬆️</span> <span className="font-semibold">{meme.data.score}</span> upvotes
+            <p className="mb-2 flex items-center text-muted-foreground">
+              <span role="img" aria-label="upvotes" className="mr-2">⬆️</span> <span className="ml-1 font-semibold text-foreground">{meme.data.score}</span> upvotes
             </p>
           )}
           <a
             href={`https://reddit.com${meme.data.permalink}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+            className="mt-4 inline-flex items-center justify-center rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground shadow-sm transition-colors hover:bg-secondary/80"
           >
             <span role="img" aria-label="reddit" className="mr-2">🔗</span> View on Reddit
           </a>
         </div>
   
         {similarSubreddits.length > 0 && (
-          <div className="similar-subreddits bg-white shadow-md rounded-lg p-6 mt-4">
+          <div className="mt-6 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm">
             <h2 className="text-xl font-bold mb-4">Similar Subreddits</h2>
-            <ul>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
               {similarSubreddits.map((sub, index) => (
-                <li key={index} className="mb-2">
+                <li key={index}>
                   <a
                     href={`/r/${sub.data.display_name}`}
                     onClick={(e) => {
                       e.preventDefault();
                       navigate(`/r/${sub.data.display_name}`);
                     }}
-                    className="text-blue-500 hover:text-blue-700"
+                    className="block rounded-md p-2 hover:bg-accent hover:text-accent-foreground transition-colors text-primary"
                   >
                     r/{sub.data.display_name}
                   </a>
@@ -473,9 +475,9 @@ function MemePage() {
       </div>
   
       {/* Full-width MemeGallery section */}
-      <div className="w-full mt-8 bg-gray-100 py-6 rounded-lg">
+      <div className="w-full mt-12 border-t border-border pt-8">
         <div className="mx-auto px-4">
-          <h2 className="text-xl font-bold mb-4">More from r/{subreddit}</h2>
+          <h2 className="text-2xl font-bold mb-6">More from r/{subreddit}</h2>
           <MemeGallery subreddit={subreddit} />
         </div>
       </div>

@@ -224,7 +224,7 @@ function Search() {
                 >
                   <Link
                     to={`/r/${subreddit.display_name}`}
-                    className="bg-card border rounded-lg overflow-hidden hover:shadow-md transition-shadow block"
+                    className="block overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:ring-1 hover:ring-ring"
                     onClick={() => handleSubredditClick(subreddit)}
                   >
                     <div className="p-4">
@@ -235,7 +235,7 @@ function Search() {
                   </Link>
                   {hoveredSubredditId === subreddit.id && (
                     <button
-                      className="absolute top-1 right-1 bg-gray-200 rounded-full p-1 hover:bg-gray-300"
+                      className="absolute top-2 right-2 rounded-full bg-background/80 p-1 text-foreground backdrop-blur-sm hover:bg-accent hover:text-accent-foreground"
                       onClick={() => handleRemoveVisited(subreddit.id)}
                     >
                       <X className="h-4 w-4" />
@@ -252,7 +252,7 @@ function Search() {
             <Link 
               to={`/r/${subreddit.display_name}`} 
               key={subreddit.id}
-              className="block bg-card border rounded-lg overflow-hidden hover:shadow-md transition-shadow"
+              className="block overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:ring-1 hover:ring-ring"
               onClick={() => handleSubredditClick(subreddit)}
             >
               <div className="p-4">

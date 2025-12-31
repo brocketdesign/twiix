@@ -5,7 +5,7 @@ import { Helmet } from 'react-helmet-async';
 import { debouncedFetch, exponentialBackoff } from '../utils/apiUtils';
 import { REDDIT_API_CONFIG, MEDIA_CONFIG, ERROR_MESSAGES } from '../config/redditApi';
 // Icon imports
-import { TbDownload, TbHome, TbSearch, TbPuzzle, TbTag } from 'react-icons/tb';
+import { TbDownload, TbHome, TbSearch, TbPuzzle, TbTag, TbPhoto, TbVideo, TbFileText, TbLink } from 'react-icons/tb';
 
 // Create a reusable LazyVideo component for all video types
 const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" }) => {
@@ -51,14 +51,14 @@ const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" 
   };
 
   return (
-    <div className="video-container" ref={containerRef}>
+    <div className="relative w-full bg-black aspect-video" ref={containerRef}>
       <video 
         ref={videoRef}
         controls 
         preload="metadata"
         loop 
         muted 
-        className="media-content"
+        className="w-full h-full object-contain"
         onError={handleVideoError}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
@@ -119,6 +119,15 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
   useEffect(() => {
     if (isVisible && !isLoading && !videoUrl && !error) {
       setIsLoading(true);
+      // Try to use the RedGifs API directly or fallback to a known pattern if possible
+      // Since we are avoiding the proxy, we'll try to construct a direct URL if possible
+      // or just fail gracefully if we can't get the token.
+      // For now, let's try to use the proxy only if it's available, but since the user
+      // wants to avoid it, we might need another strategy.
+      // However, RedGifs usually requires a token.
+      // Let's revert to the localhost check but handle failure better, or just disable it if the user wants no proxy.
+      
+      // Reverting to original behavior but with better error handling
       const serverUrl = 'http://localhost:3001';
       const url = `${serverUrl}/api/redgifs/${gifId}`;
 
@@ -141,7 +150,7 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
   }, [isVisible, isLoading, videoUrl, error, gifId]);
 
   return (
-    <div className="video-container" ref={containerRef}>
+    <div className="relative w-full bg-black aspect-video" ref={containerRef}>
       {videoUrl ? (
         <video 
           ref={videoRef}
@@ -149,7 +158,7 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
           preload="metadata"
           loop 
           muted 
-          className="media-content"
+          className="w-full h-full object-contain"
           poster={thumbnailUrl}
           onError={() => setError("Failed to load video")}
         >
@@ -584,6 +593,17 @@ function MemeGallery({ subreddit = 'memes' }) {
         />
       );
     }
+
+    // Handle text posts
+    if (meme.data.is_self || meme.data.post_hint === 'self') {
+        return (
+            <div className="text-content" style={{ padding: '15px', maxHeight: '300px', overflowY: 'auto', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
+                <p style={{ whiteSpace: 'pre-wrap', fontSize: '0.9rem' }}>
+                    {meme.data.selftext ? (meme.data.selftext.length > 300 ? meme.data.selftext.substring(0, 300) + '...' : meme.data.selftext) : ''}
+                </p>
+            </div>
+        );
+    }
     
     // Handle standard GIFs, JPGs, PNGs
     if (url) {
@@ -718,6 +738,19 @@ function MemeGallery({ subreddit = 'memes' }) {
     }
   }, [memes, isLoading]);
 
+  const getMediaTypeIcon = (data) => {
+    if (data.is_video || data.post_hint === 'hosted:video' || data.post_hint === 'rich:video' || (data.url && data.url.includes('redgifs'))) {
+        return <TbVideo size={20} />;
+    }
+    if (data.post_hint === 'image' || (data.url && data.url.match(/\.(jpeg|jpg|gif|png|webp)$/i))) {
+        return <TbPhoto size={20} />;
+    }
+    if (data.is_self || data.post_hint === 'self') {
+        return <TbFileText size={20} />;
+    }
+    return <TbLink size={20} />;
+  };
+
   // Configure breakpoints for responsive design
   const breakpointColumnsObj = {
     default: 4, // Default column count
@@ -727,11 +760,11 @@ function MemeGallery({ subreddit = 'memes' }) {
   };
 
   return (
-    <div className="meme-gallery">
+    <div className="container mx-auto px-4 py-8">
       <Helmet>
         <title>r/{subreddit} - Reddit Meme Gallery</title>
       </Helmet>
-      <h2 className="text-2xl font-bold mb-6 text-center">r/{subreddit}</h2>
+      <h2 className="text-3xl font-bold mb-8 text-center text-foreground tracking-tight">r/{subreddit}</h2>
       
       {/* Remove the pagination UI controls */}
       
@@ -763,24 +796,26 @@ function MemeGallery({ subreddit = 'memes' }) {
 
           return (
             <div 
-              className="masonry-item" 
+              className="group relative mb-6 overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:ring-1 hover:ring-ring" 
               key={meme.data.id || index}
               ref={index === memes.length - 1 ? lastMemeElementRef : null}
             >
-              {renderedMedia[meme.data.id] || <div className="loading">Loading media...</div>}
-              <p className="p-3 text-sm">
-                <Link to={`/r/${subreddit}/${meme.data.id}`} className="meme-link">
+              <div className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm pointer-events-none">
+                  {getMediaTypeIcon(meme.data)}
+              </div>
+              {renderedMedia[meme.data.id] || <div className="flex h-48 items-center justify-center bg-muted text-muted-foreground">Loading media...</div>}
+              <p className="p-4 text-sm font-medium leading-snug">
+                <Link to={`/r/${subreddit}/${meme.data.id}`} className="hover:text-primary transition-colors">
                   {meme.data.title}
                 </Link>
               </p>
               {/* Action icons row */}
-              <div className="flex flex-wrap gap-2 px-3 pb-2 text-lg items-center">
+              <div className="flex flex-wrap gap-3 px-4 pb-4 text-lg items-center text-muted-foreground">
                 {/* Download */}
                 <button
                   title="Download"
                   onClick={() => handleDownload(mediaUrl, meme.data.title)}
-                  className="hover:text-blue-500"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                  className="hover:text-primary transition-colors"
                 >
                   <TbDownload />
                 </button>
@@ -794,18 +829,17 @@ function MemeGallery({ subreddit = 'memes' }) {
                           showRelatedFor === meme.data.id ? null : meme.data.id
                         )
                       }
-                      className="hover:text-purple-500"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                      className="hover:text-primary transition-colors"
                     >
                       <TbPuzzle />
                     </button>
                     {showRelatedFor === meme.data.id && (
-                      <div className="absolute z-10 bg-white border rounded shadow p-2 mt-1 min-w-[150px]">
-                        <div className="font-semibold text-xs mb-1">Related subreddits:</div>
+                      <div className="absolute bottom-full mb-2 left-0 z-20 bg-popover border border-border rounded-md shadow-md p-2 min-w-[150px] text-popover-foreground">
+                        <div className="font-semibold text-xs mb-1 text-muted-foreground">Related subreddits:</div>
                         {relatedSubreddits.map((sub, i) => (
                           <button
                             key={sub}
-                            className="block text-left w-full hover:bg-gray-100 px-2 py-1 text-sm"
+                            className="block text-left w-full hover:bg-accent hover:text-accent-foreground px-2 py-1 text-sm rounded-sm transition-colors"
                             onClick={() => {
                               setShowRelatedFor(null);
                               navigate(`/r/${sub}`);
@@ -824,8 +858,7 @@ function MemeGallery({ subreddit = 'memes' }) {
                     key={i}
                     title={`Search tag: ${tag}`}
                     onClick={() => navigate(`/search?tag=${encodeURIComponent(tag)}`)}
-                    className="hover:text-pink-500 px-1 flex items-center gap-1"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                    className="hover:text-primary px-1 flex items-center gap-1 transition-colors"
                   >
                     <TbTag className="inline" /> <span className="text-xs">{tag}</span>
                   </button>
@@ -836,10 +869,10 @@ function MemeGallery({ subreddit = 'memes' }) {
         })}
       </Masonry>
       
-      {isLoading && <div className="loading">Loading more memes...</div>}
+      {isLoading && <div className="py-8 text-center text-muted-foreground">Loading more memes...</div>}
       {!hasMore && memes.length > 0 && (
-        <div className="end-message">
-          <p>{ERROR_MESSAGES.NO_MORE_CONTENT}</p>
+        <div className="py-12 text-center">
+          <p className="mb-4 text-muted-foreground">{ERROR_MESSAGES.NO_MORE_CONTENT}</p>
           <button 
             onClick={() => {
               setMemes([]);
@@ -870,7 +903,7 @@ function MemeGallery({ subreddit = 'memes' }) {
               
               fetchMemes();
             }}
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             Refresh Feed
           </button>

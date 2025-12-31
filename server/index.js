@@ -2,6 +2,7 @@ const express = require('express');
 const { getGif } = require('redgif');
 const path = require('path');
 const cors = require('cors');
+const apiRoutes = require('./routes/api');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -9,6 +10,9 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// API Routes
+app.use('/api', apiRoutes);
 
 // RedGifs endpoint
 app.get('/api/redgifs/:id', async (req, res) => {
