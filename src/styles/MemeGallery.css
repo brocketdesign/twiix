@@ -1,0 +1,153 @@
+/* Masonry Gallery Styles */
+
+/* Media wrapper for natural content sizing */
+.media-wrapper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.media-wrapper video,
+.media-wrapper img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Error and loading states */
+.error-message {
+  padding: 1rem;
+  text-align: center;
+  background-color: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  border-radius: 0.5rem;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.retry-button {
+  padding: 0.5rem 1rem;
+  background-color: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background-color 0.2s;
+}
+
+.retry-button:hover {
+  background-color: #b91c1c;
+}
+
+.loading-container {
+  background-color: #000;
+  color: #fff;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.loading-spinner {
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-message {
+  font-size: 0.875rem;
+  opacity: 0.8;
+}
+
+/* Poster image for video placeholders */
+.poster-image {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+/* Gallery Carousel Styles */
+.gallery-carousel {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.gallery-image-container {
+  width: 100%;
+  position: relative;
+}
+
+.gallery-image-container img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transition: opacity 0.2s ease;
+}
+
+.gallery-nav {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.gallery-carousel:hover .gallery-nav {
+  opacity: 1;
+}
+
+.gallery-nav:focus {
+  opacity: 1;
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+.gallery-counter {
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery-dots button {
+  transition: all 0.2s ease;
+}
+
+.gallery-error {
+  padding: 2rem;
+  text-align: center;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Touch-friendly gallery on mobile */
+@media (max-width: 768px) {
+  .gallery-nav {
+    opacity: 1;
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+  
+  .gallery-counter {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+  }
+  
+  .gallery-dots button {
+    width: 0.5rem;
+    height: 0.5rem;
+  }
+}

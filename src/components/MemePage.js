@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import MemeGallery from './MemeGallery';
 import { Helmet } from 'react-helmet-async';
+import '../styles/MemeGallery.css';
+import LikeButton from './LikeButton';
 
 // Import components used by MemePage
 const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" }) => {
@@ -185,6 +187,119 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
   );
 });
 
+// Gallery Carousel component for Reddit gallery posts
+const GalleryCarousel = React.memo(({ galleryData, mediaMetadata }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  
+  // Extract images from gallery data in order
+  const images = React.useMemo(() => {
+    if (!galleryData?.items || !mediaMetadata) return [];
+    
+    return galleryData.items
+      .map(item => {
+        const media = mediaMetadata[item.media_id];
+        if (!media || media.status !== 'valid') return null;
+        
+        // Get the source image URL (highest quality)
+        const sourceUrl = media.s?.u || media.s?.gif;
+        if (!sourceUrl) return null;
+        
+        // Decode HTML entities in URL
+        const decodedUrl = sourceUrl.replace(/&amp;/g, '&');
+        
+        // Get a preview image for faster loading
+        const previewUrl = media.p && media.p.length > 0 
+          ? media.p[media.p.length - 1].u.replace(/&amp;/g, '&')
+          : decodedUrl;
+        
+        return {
+          id: item.media_id,
+          src: decodedUrl,
+          preview: previewUrl,
+          width: media.s?.x,
+          height: media.s?.y,
+          type: media.e, // 'Image' or 'AnimatedImage'
+        };
+      })
+      .filter(Boolean);
+  }, [galleryData, mediaMetadata]);
+  
+  const goToNext = (e) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev + 1) % images.length);
+  };
+  
+  const goToPrev = (e) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+  
+  if (images.length === 0) {
+    return <div className="gallery-error">Gallery images not available</div>;
+  }
+  
+  const currentImage = images[currentIndex];
+  
+  return (
+    <div className="gallery-carousel relative w-full bg-black">
+      {/* Main image */}
+      <div className="gallery-image-container relative">
+        <img 
+          src={currentImage.src} 
+          alt={`Gallery image ${currentIndex + 1} of ${images.length}`}
+          className="w-full h-auto block"
+          loading="lazy"
+        />
+      </div>
+      
+      {/* Navigation arrows - only show if more than 1 image */}
+      {images.length > 1 && (
+        <>
+          <button 
+            onClick={goToPrev}
+            className="gallery-nav gallery-nav-prev absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors z-10"
+            aria-label="Previous image"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <button 
+            onClick={goToNext}
+            className="gallery-nav gallery-nav-next absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors z-10"
+            aria-label="Next image"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </>
+      )}
+      
+      {/* Image counter */}
+      {images.length > 1 && (
+        <div className="gallery-counter absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-sm px-3 py-1 rounded-full z-10">
+          {currentIndex + 1} / {images.length}
+        </div>
+      )}
+      
+      {/* Dot indicators for small galleries */}
+      {images.length > 1 && images.length <= 10 && (
+        <div className="gallery-dots absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+          {images.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
+              className={`w-2 h-2 rounded-full transition-colors ${idx === currentIndex ? 'bg-white' : 'bg-white/50 hover:bg-white/75'}`}
+              aria-label={`Go to image ${idx + 1}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 function MemePage() {
   const { subreddit, memeId } = useParams();
   const navigate = useNavigate();
@@ -229,7 +344,7 @@ function MemePage() {
     // Clear previously rendered media before processing new meme
     setRenderedMedia(null);
     
-    const { url, media, post_hint, secure_media, thumbnail, preview } = meme.data;
+    const { url, media, post_hint, secure_media, thumbnail, preview, is_gallery, gallery_data, media_metadata } = meme.data;
     
     // Extract thumbnail
     let thumbnailUrl = null;
@@ -251,6 +366,18 @@ function MemePage() {
     
     if (thumbnailUrl) {
       setThumbnail(thumbnailUrl);
+    }
+
+    // Handle Reddit gallery posts (multiple images)
+    if (is_gallery && gallery_data && media_metadata) {
+      setRenderedMedia(
+        <GalleryCarousel 
+          key={`${meme.data.id}-gallery`}
+          galleryData={gallery_data}
+          mediaMetadata={media_metadata}
+        />
+      );
+      return;
     }
 
     // Render appropriate media component
@@ -430,9 +557,12 @@ function MemePage() {
         </div>
         
         <div className="rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm">
-          <p className="mb-2 flex items-center text-muted-foreground">
-            <span role="img" aria-label="user" className="mr-2">👤</span> Posted by <span className="ml-1 font-semibold text-foreground">u/{meme.data.author}</span>
-          </p>
+          <div className="flex items-center justify-between mb-4">
+            <p className="flex items-center text-muted-foreground">
+              <span role="img" aria-label="user" className="mr-2">👤</span> Posted by <span className="ml-1 font-semibold text-foreground">u/{meme.data.author}</span>
+            </p>
+            <LikeButton meme={meme} size="lg" showText={true} />
+          </div>
           <p className="mb-2 flex items-center text-muted-foreground">
             <span role="img" aria-label="date" className="mr-2">📅</span> {new Date(meme.data.created_utc * 1000).toLocaleString()}
           </p>

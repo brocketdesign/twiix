@@ -4,8 +4,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { debouncedFetch, exponentialBackoff } from '../utils/apiUtils';
 import { REDDIT_API_CONFIG, MEDIA_CONFIG, ERROR_MESSAGES } from '../config/redditApi';
+import '../styles/MemeGallery.css';
 // Icon imports
-import { TbDownload, TbHome, TbSearch, TbPuzzle, TbTag, TbPhoto, TbVideo, TbFileText, TbLink } from 'react-icons/tb';
+import { TbDownload, TbHome, TbSearch, TbPuzzle, TbTag, TbPhoto, TbVideo, TbFileText, TbLink, TbLayoutGrid } from 'react-icons/tb';
+import LikeButton from './LikeButton';
 
 // Create a reusable LazyVideo component for all video types
 const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" }) => {
@@ -51,14 +53,14 @@ const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" 
   };
 
   return (
-    <div className="relative w-full bg-black aspect-video" ref={containerRef}>
+    <div className="relative w-full bg-black" ref={containerRef}>
       <video 
         ref={videoRef}
         controls 
         preload="metadata"
         loop 
         muted 
-        className="w-full h-full object-contain"
+        className="w-full h-auto block"
         onError={handleVideoError}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
@@ -150,7 +152,7 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
   }, [isVisible, isLoading, videoUrl, error, gifId]);
 
   return (
-    <div className="relative w-full bg-black aspect-video" ref={containerRef}>
+    <div className="relative w-full bg-black min-h-[200px]" ref={containerRef}>
       {videoUrl ? (
         <video 
           ref={videoRef}
@@ -158,7 +160,7 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
           preload="metadata"
           loop 
           muted 
-          className="w-full h-full object-contain"
+          className="w-full h-auto block"
           poster={thumbnailUrl}
           onError={() => setError("Failed to load video")}
         >
@@ -176,7 +178,7 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
           </button>
         </div>
       ) : isLoading ? (
-        <div className="loading-container">
+        <div className="loading-container min-h-[200px] flex items-center justify-center flex-col">
           <div className="loading-spinner">
             <svg viewBox="0 0 32 32" width="32" height="32">
               <circle cx="16" cy="16" r="14" fill="none" strokeWidth="4" stroke="#fff" strokeDasharray="87.96459430051421 87.96459430051421" transform="rotate(120 16 16)">
@@ -187,9 +189,122 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
           <span>Loading RedGifs content...</span>
         </div>
       ) : (
-        <div className="loading-container" onClick={() => setIsVisible(true)}>
-          {thumbnailUrl && <img src={thumbnailUrl} alt="RedGifs thumbnail" className="poster-image" />}
+        <div className="loading-container min-h-[200px] flex items-center justify-center flex-col cursor-pointer" onClick={() => setIsVisible(true)}>
+          {thumbnailUrl && <img src={thumbnailUrl} alt="RedGifs thumbnail" className="w-full h-auto" />}
           <div className="loading-message">Click to load content</div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// Gallery Carousel component for Reddit gallery posts
+const GalleryCarousel = React.memo(({ galleryData, mediaMetadata }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  
+  // Extract images from gallery data in order
+  const images = React.useMemo(() => {
+    if (!galleryData?.items || !mediaMetadata) return [];
+    
+    return galleryData.items
+      .map(item => {
+        const media = mediaMetadata[item.media_id];
+        if (!media || media.status !== 'valid') return null;
+        
+        // Get the source image URL (highest quality)
+        const sourceUrl = media.s?.u || media.s?.gif;
+        if (!sourceUrl) return null;
+        
+        // Decode HTML entities in URL
+        const decodedUrl = sourceUrl.replace(/&amp;/g, '&');
+        
+        // Get a preview image for faster loading
+        const previewUrl = media.p && media.p.length > 0 
+          ? media.p[media.p.length - 1].u.replace(/&amp;/g, '&')
+          : decodedUrl;
+        
+        return {
+          id: item.media_id,
+          src: decodedUrl,
+          preview: previewUrl,
+          width: media.s?.x,
+          height: media.s?.y,
+          type: media.e, // 'Image' or 'AnimatedImage'
+        };
+      })
+      .filter(Boolean);
+  }, [galleryData, mediaMetadata]);
+  
+  const goToNext = (e) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev + 1) % images.length);
+  };
+  
+  const goToPrev = (e) => {
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+  
+  if (images.length === 0) {
+    return <div className="gallery-error">Gallery images not available</div>;
+  }
+  
+  const currentImage = images[currentIndex];
+  
+  return (
+    <div className="gallery-carousel relative w-full bg-black">
+      {/* Main image */}
+      <div className="gallery-image-container relative">
+        <img 
+          src={currentImage.src} 
+          alt={`Gallery image ${currentIndex + 1} of ${images.length}`}
+          className="w-full h-auto block"
+          loading="lazy"
+        />
+      </div>
+      
+      {/* Navigation arrows - only show if more than 1 image */}
+      {images.length > 1 && (
+        <>
+          <button 
+            onClick={goToPrev}
+            className="gallery-nav gallery-nav-prev absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors z-10"
+            aria-label="Previous image"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <button 
+            onClick={goToNext}
+            className="gallery-nav gallery-nav-next absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors z-10"
+            aria-label="Next image"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </>
+      )}
+      
+      {/* Image counter */}
+      {images.length > 1 && (
+        <div className="gallery-counter absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-sm px-3 py-1 rounded-full z-10">
+          {currentIndex + 1} / {images.length}
+        </div>
+      )}
+      
+      {/* Dot indicators for small galleries */}
+      {images.length > 1 && images.length <= 10 && (
+        <div className="gallery-dots absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+          {images.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
+              className={`w-2 h-2 rounded-full transition-colors ${idx === currentIndex ? 'bg-white' : 'bg-white/50 hover:bg-white/75'}`}
+              aria-label={`Go to image ${idx + 1}`}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -518,10 +633,20 @@ function MemeGallery({ subreddit = 'memes' }) {
 
   // Remove thumbnail extraction from renderMedia, just use thumbnails state
   const renderMedia = useCallback(async (meme) => {
-    const { url, media, post_hint, secure_media, thumbnail, preview } = meme.data;
+    const { url, media, post_hint, secure_media, thumbnail, preview, is_gallery, gallery_data, media_metadata } = meme.data;
 
     // Use precomputed thumbnail
     const thumbUrl = thumbnails[meme.data.id];
+
+    // Handle Reddit gallery posts (multiple images)
+    if (is_gallery && gallery_data && media_metadata) {
+      return (
+        <GalleryCarousel 
+          galleryData={gallery_data}
+          mediaMetadata={media_metadata}
+        />
+      );
+    }
 
     if (media && media.reddit_video) {
       return (
@@ -739,6 +864,9 @@ function MemeGallery({ subreddit = 'memes' }) {
   }, [memes, isLoading]);
 
   const getMediaTypeIcon = (data) => {
+    if (data.is_gallery) {
+        return <TbLayoutGrid size={20} />;
+    }
     if (data.is_video || data.post_hint === 'hosted:video' || data.post_hint === 'rich:video' || (data.url && data.url.includes('redgifs'))) {
         return <TbVideo size={20} />;
     }
@@ -762,7 +890,7 @@ function MemeGallery({ subreddit = 'memes' }) {
   return (
     <div className="container mx-auto px-4 py-8">
       <Helmet>
-        <title>r/{subreddit} - reddgallery NSFW Viewer</title>
+        <title>{`r/${subreddit} - reddgallery NSFW Viewer`}</title>
       </Helmet>
       <h2 className="text-3xl font-bold mb-8 text-center text-foreground tracking-tight">r/{subreddit}</h2>
       
@@ -796,14 +924,16 @@ function MemeGallery({ subreddit = 'memes' }) {
 
           return (
             <div 
-              className="group relative mb-6 overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:ring-1 hover:ring-ring" 
+              className="group relative overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:ring-1 hover:ring-ring" 
               key={meme.data.id || index}
               ref={index === memes.length - 1 ? lastMemeElementRef : null}
             >
               <div className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm pointer-events-none">
                   {getMediaTypeIcon(meme.data)}
               </div>
-              {renderedMedia[meme.data.id] || <div className="flex h-48 items-center justify-center bg-muted text-muted-foreground">Loading media...</div>}
+              <div className="media-wrapper">
+                {renderedMedia[meme.data.id] || <div className="flex min-h-[200px] items-center justify-center bg-muted text-muted-foreground">Loading media...</div>}
+              </div>
               <p className="p-4 text-sm font-medium leading-snug">
                 <Link to={`/r/${subreddit}/${meme.data.id}`} className="hover:text-primary transition-colors">
                   {meme.data.title}
@@ -811,6 +941,8 @@ function MemeGallery({ subreddit = 'memes' }) {
               </p>
               {/* Action icons row */}
               <div className="flex flex-wrap gap-3 px-4 pb-4 text-lg items-center text-muted-foreground">
+                {/* Like */}
+                <LikeButton meme={meme} size="md" />
                 {/* Download */}
                 <button
                   title="Download"

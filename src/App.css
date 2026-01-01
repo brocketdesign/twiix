@@ -7,11 +7,54 @@
 /* Masonry Grid Styles */
 .masonry-grid {
   display: flex;
-  width: 100%;
-  margin-left: -1.5rem; /* gutter size offset */
+  width: auto;
+  margin-left: -1rem; /* gutter size offset */
 }
 
 .masonry-grid_column {
-  padding-left: 1.5rem; /* gutter size */
+  padding-left: 1rem; /* gutter size */
   background-clip: padding-box;
+}
+
+/* Masonry items - allow natural heights */
+.masonry-grid_column > div {
+  margin-bottom: 1rem;
+  break-inside: avoid;
+}
+
+/* Media content natural sizing */
+.media-content {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+
+/* Video containers - full width, natural height */
+.masonry-grid video {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Image containers in masonry */
+.masonry-grid img {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+}
+
+/* Loading placeholder */
+.masonry-grid .loading-placeholder {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Text content styling for masonry */
+.text-content {
+  min-height: 150px;
+  max-height: 400px;
 }

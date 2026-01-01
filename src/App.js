@@ -5,6 +5,8 @@ import Search from './components/Search';
 import Navigation from './components/Navigation';
 import MemePage from './components/MemePage';
 import MemeGallery from './components/MemeGallery';
+import SubredditsPage from './pages/SubredditsPage';
+import LikesPage from './pages/LikesPage';
 
 function App() {
   // Retrieve visitedSubreddits from local storage
@@ -32,6 +34,8 @@ function App() {
       <main>
         <Routes>
           <Route path="/search" element={<Search />} />
+          <Route path="/subreddits" element={<SubredditsPage />} />
+          <Route path="/likes" element={<LikesPage />} />
           <Route path="/r/:subreddit" element={<SubredditRoute />} />
           <Route path="/r/:subreddit/:memeId" element={<MemePage />} />
         </Routes>
