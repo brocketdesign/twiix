@@ -181,7 +181,7 @@ function Search() {
   return (
     <div className="container mx-auto px-4 py-8">
       <Helmet>
-        <title>{`Search Subreddits - reddgallery NSFW Viewer`}</title>
+        <title>{`Search Subreddits - twiix NSFW Viewer`}</title>
       </Helmet>
       <div className="mx-auto">
         <h1 className="text-3xl font-bold mb-8 text-center">Search Subreddits</h1>

@@ -434,7 +434,7 @@ const LikesPage = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4">
         <Helmet>
-          <title>{'Liked Memes - reddgallery'}</title>
+          <title>{'Liked Memes - twiix'}</title>
         </Helmet>
         <FaHeart className="w-16 h-16 text-gray-300 mb-4" />
         <h1 className="text-2xl font-bold text-foreground mb-2">Sign in to view your likes</h1>
@@ -456,7 +456,7 @@ const LikesPage = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4">
         <Helmet>
-          <title>{'Liked Memes - reddgallery'}</title>
+          <title>{'Liked Memes - twiix'}</title>
         </Helmet>
         <FaHeart className="w-16 h-16 text-gray-300 mb-4" />
         <h1 className="text-2xl font-bold text-foreground mb-2">No liked memes yet</h1>
@@ -476,7 +476,7 @@ const LikesPage = () => {
   return (
     <div className="container mx-auto px-4 py-6 max-w-screen-2xl">
       <Helmet>
-        <title>{'Liked Memes (' + likes.length + ') - reddgallery'}</title>
+        <title>{'Liked Memes (' + likes.length + ') - twiix'}</title>
       </Helmet>
 
       {/* Header */}

@@ -1,7 +1,7 @@
 {
-  "name": "reddgallery-server",
+  "name": "twiix-server",
   "version": "1.0.0",
-  "description": "Backend server for reddgallery",
+  "description": "Backend server for twiix",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

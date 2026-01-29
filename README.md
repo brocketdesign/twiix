@@ -1,8 +1,8 @@
-# reddgallery
+# twiix
 
 A React-based web app showcasing an infinite-scrolling image and video gallery sourced from Reddit. Enjoy a seamless browsing experience with a responsive design, smooth previews, and a handy navigation button. Explore the world of Reddit content!
 
-Live Demo: [reddgallery](https://65ba4036620ac90007b2fcb7--myredditmeme.netlify.app/)
+Live Demo: [twiix](https://twiix.net)
 
 ## Features
 
@@ -18,8 +18,8 @@ To run this project locally:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/reddit-meme-gallery.git
-   cd reddit-meme-gallery
+   git clone https://github.com/yourusername/twiix.git
+   cd twiix
    ```
 
 2. Install dependencies:

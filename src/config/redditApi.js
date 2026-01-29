@@ -27,7 +27,7 @@ export const REDDIT_API_CONFIG = {
   MEDIA_BATCH_DELAY: 10, // Delay between batches (ms)
   
   // User Agent for API requests
-  // USER_AGENT: 'reddgallery/1.0 (https://reddgallery.netlify.app)',
+  // USER_AGENT: 'twiix/1.0 (https://twiix.netlify.app)',
   
   // Development settings
   DEBUG_MODE: process.env.NODE_ENV === 'development',
