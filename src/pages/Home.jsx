@@ -1,15 +1,10 @@
 
-
-import Header from "../components/Header";
-import Memes from "../components/Memes";
+import TikTokFeed from "../components/TikTokFeed";
 
 const Home = () => {
 
     return (
-        <div>
-            <Header />
-            <Memes />
-        </div>
+        <TikTokFeed subreddit="memes" />
     )
 }
 

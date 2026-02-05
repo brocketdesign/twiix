@@ -4,7 +4,7 @@ import './App.css';
 import Search from './components/Search';
 import Navigation from './components/Navigation';
 import MemePage from './components/MemePage';
-import MemeGallery from './components/MemeGallery';
+import TikTokFeed from './components/TikTokFeed';
 import SubredditsPage from './pages/SubredditsPage';
 import LikesPage from './pages/LikesPage';
 
@@ -46,7 +46,7 @@ function App() {
 
 function SubredditRoute() {
   const { subreddit } = useParams();
-  return <MemeGallery subreddit={subreddit} />;
+  return <TikTokFeed subreddit={subreddit} />;
 }
 
 export default App;
