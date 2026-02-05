@@ -254,12 +254,46 @@ function TikTokFeed({ subreddit, username }) {
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
   const [isScrolling, setIsScrolling] = useState(false);
-  
+  const [seenIds, setSeenIds] = useState(new Set());
+  const seenIdsRef = useRef(new Set());
   const containerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
   const isLoadingRef = useRef(false);
   const minSwipeDistance = 50;
   const navigate = useNavigate();
+
+  const getSeenStorageKey = useCallback(() => {
+    if (username) {
+      return `seen_memes_user_${username}`;
+    }
+    const sub = subreddit || 'memes';
+    return `seen_memes_subreddit_${sub}`;
+  }, [subreddit, username]);
+
+  const loadSeenIds = useCallback(() => {
+    const storageKey = getSeenStorageKey();
+    try {
+      const raw = localStorage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const setFromStorage = new Set(Array.isArray(parsed) ? parsed : []);
+      seenIdsRef.current = setFromStorage;
+      setSeenIds(setFromStorage);
+    } catch (error) {
+      console.error('Failed to load seen memes from storage:', error);
+      const emptySet = new Set();
+      seenIdsRef.current = emptySet;
+      setSeenIds(emptySet);
+    }
+  }, [getSeenStorageKey]);
+
+  const persistSeenIds = useCallback((setToPersist) => {
+    const storageKey = getSeenStorageKey();
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(Array.from(setToPersist)));
+    } catch (error) {
+      console.error('Failed to persist seen memes:', error);
+    }
+  }, [getSeenStorageKey]);
 
   // Fetch memes from Reddit API
   const fetchMemes = useCallback(async (afterToken = null) => {
@@ -333,8 +367,11 @@ function TikTokFeed({ subreddit, username }) {
           // Exclude everything else (text posts, links, documents)
           return false;
         });
+
+        const seenSet = seenIdsRef.current;
+        const unseenMemes = filteredMemes.filter(meme => !seenSet.has(meme.data.id));
         
-        setMemes(prev => [...prev, ...filteredMemes]);
+        setMemes(prev => [...prev, ...unseenMemes]);
         setAfter(response.data.after);
         setHasMore(!!response.data.after);
       }
@@ -347,6 +384,10 @@ function TikTokFeed({ subreddit, username }) {
   }, [subreddit, username]);
 
   // Initial fetch
+  useEffect(() => {
+    loadSeenIds();
+  }, [loadSeenIds]);
+
   useEffect(() => {
     setMemes([]);
     setCurrentIndex(0);
@@ -361,6 +402,19 @@ function TikTokFeed({ subreddit, username }) {
       fetchMemes(after);
     }
   }, [currentIndex, memes.length, hasMore, isLoading, after, fetchMemes]);
+
+  useEffect(() => {
+    const currentMeme = memes[currentIndex];
+    const memeId = currentMeme?.data?.id;
+    if (!memeId) return;
+    if (!seenIdsRef.current.has(memeId)) {
+      const updatedSeen = new Set(seenIdsRef.current);
+      updatedSeen.add(memeId);
+      seenIdsRef.current = updatedSeen;
+      setSeenIds(updatedSeen);
+      persistSeenIds(updatedSeen);
+    }
+  }, [currentIndex, memes, persistSeenIds]);
 
   // Handle vertical swipe
   const onTouchStart = (e) => {

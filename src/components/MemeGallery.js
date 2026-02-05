@@ -346,6 +346,36 @@ function MemeGallery({ subreddit = 'memes' }) {
   
   const observer = useRef();
   const throttleTimeoutRef = useRef();
+
+  const getSeenStorageKey = useCallback(() => {
+    const sub = subreddit || 'memes';
+    return `seen_memes_subreddit_${sub}`;
+  }, [subreddit]);
+
+  const loadSeenIds = useCallback(() => {
+    const storageKey = getSeenStorageKey();
+    try {
+      const raw = localStorage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const setFromStorage = new Set(Array.isArray(parsed) ? parsed : []);
+      setSeenIds(setFromStorage);
+      return setFromStorage;
+    } catch (error) {
+      console.error('Failed to load seen memes from storage:', error);
+      const emptySet = new Set();
+      setSeenIds(emptySet);
+      return emptySet;
+    }
+  }, [getSeenStorageKey]);
+
+  const persistSeenIds = useCallback((setToPersist) => {
+    const storageKey = getSeenStorageKey();
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(Array.from(setToPersist)));
+    } catch (error) {
+      console.error('Failed to persist seen memes:', error);
+    }
+  }, [getSeenStorageKey]);
   
   const lastMemeElementRef = useCallback(node => {
     if (isLoading) return;
@@ -474,7 +504,7 @@ function MemeGallery({ subreddit = 'memes' }) {
     setMemes([]);
     setAfter(null);
     setHasMore(true);
-    setSeenIds(new Set()); // Reset seen IDs when changing subreddit
+    loadSeenIds(); // Load seen IDs for this subreddit
     setSeenTitles(new Set()); // Reset seen titles when changing subreddit
     setSeenUrls(new Set()); // Reset seen URLs when changing subreddit
     setFetchedUrlPaths(new Set()); // Reset fetched URL paths when changing subreddit
@@ -498,7 +528,7 @@ function MemeGallery({ subreddit = 'memes' }) {
     }
     
     fetchMemes();
-  }, [subreddit]);
+  }, [subreddit, loadSeenIds]);
   
   // Cleanup effect for component unmount
   useEffect(() => {
@@ -633,6 +663,7 @@ function MemeGallery({ subreddit = 'memes' }) {
         const updatedSeenIds = new Set(seenIds);
         newMemes.forEach(meme => updatedSeenIds.add(meme.data.id));
         setSeenIds(updatedSeenIds);
+        persistSeenIds(updatedSeenIds);
         
         // Update seenTitles with new meme titles
         const updatedSeenTitles = new Set(seenTitles);
@@ -1082,7 +1113,7 @@ function MemeGallery({ subreddit = 'memes' }) {
               setMemes([]);
               setAfter(null);
               setHasMore(true);
-              setSeenIds(new Set());
+              loadSeenIds();
               setSeenTitles(new Set());
               setSeenUrls(new Set()); // Reset seen URLs as well
               setFetchedUrlPaths(new Set()); // Reset fetched URL paths when refreshing
