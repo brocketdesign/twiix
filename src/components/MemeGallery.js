@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useUser, useClerk } from '@clerk/clerk-react';
 import Masonry from 'react-masonry-css';
 import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
@@ -8,6 +9,7 @@ import '../styles/MemeGallery.css';
 // Icon imports
 import { TbDownload, TbHome, TbSearch, TbPuzzle, TbTag, TbPhoto, TbVideo, TbFileText, TbLink, TbLayoutGrid } from 'react-icons/tb';
 import LikeButton from './LikeButton';
+import { useLikes } from '../context/LikesContext';
 
 // Create a reusable LazyVideo component for all video types
 const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" }) => {
@@ -385,6 +387,60 @@ function MemeGallery({ subreddit = 'memes' }) {
 
   // Add this state at the top level of the component
   const [showRelatedFor, setShowRelatedFor] = useState(null);
+
+  const { isSignedIn } = useUser();
+  const { openSignIn } = useClerk();
+  const { toggleLike, isLiked } = useLikes();
+  const [tapEffects, setTapEffects] = useState([]);
+  const lastTapRef = useRef(0);
+
+  const addTapEffect = useCallback((memeId, x, y) => {
+    const id = `${memeId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setTapEffects((prev) => [...prev, { id, memeId, x, y }]);
+    setTimeout(() => {
+      setTapEffects((prev) => prev.filter((effect) => effect.id !== id));
+    }, 700);
+  }, []);
+
+  const getEventPoint = (event) => {
+    if (event.changedTouches && event.changedTouches[0]) return event.changedTouches[0];
+    if (event.touches && event.touches[0]) return event.touches[0];
+    return event;
+  };
+
+  const handleDoubleTap = useCallback((event, meme) => {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const memeData = meme?.data || meme;
+    const memeId = memeData?.id;
+    if (!memeId) return;
+
+    if (!isSignedIn) {
+      openSignIn();
+      return;
+    }
+
+    if (!isLiked(memeId)) {
+      toggleLike(meme);
+    }
+
+    const point = getEventPoint(event);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = point.clientX - rect.left;
+    const y = point.clientY - rect.top;
+    addTapEffect(memeId, x, y);
+  }, [addTapEffect, isSignedIn, openSignIn, isLiked, toggleLike]);
+
+  const handleTouchEnd = useCallback((event, meme) => {
+    const now = Date.now();
+    const delta = now - lastTapRef.current;
+    lastTapRef.current = now;
+
+    if (delta > 0 && delta < 300) {
+      handleDoubleTap(event, meme);
+    }
+  }, [handleDoubleTap]);
 
   // Handler: Download media
   const handleDownload = (mediaUrl, title) => {
@@ -931,8 +987,24 @@ function MemeGallery({ subreddit = 'memes' }) {
               <div className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm pointer-events-none">
                   {getMediaTypeIcon(meme.data)}
               </div>
-              <div className="media-wrapper">
+              <div
+                className="media-wrapper double-tap-container"
+                onDoubleClick={(event) => handleDoubleTap(event, meme)}
+                onTouchEnd={(event) => handleTouchEnd(event, meme)}
+              >
                 {renderedMedia[meme.data.id] || <div className="flex min-h-[200px] items-center justify-center bg-muted text-muted-foreground">Loading media...</div>}
+                {tapEffects
+                  .filter((effect) => effect.memeId === meme.data.id)
+                  .map((effect) => (
+                    <span
+                      key={effect.id}
+                      className="double-tap-heart"
+                      style={{ left: effect.x, top: effect.y }}
+                      aria-hidden="true"
+                    >
+                      ❤
+                    </span>
+                  ))}
               </div>
               <p className="p-4 text-sm font-medium leading-snug">
                 <Link to={`/r/${subreddit}/${meme.data.id}`} className="hover:text-primary transition-colors">

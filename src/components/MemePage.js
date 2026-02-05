@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useUser, useClerk } from '@clerk/clerk-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import MemeGallery from './MemeGallery';
 import { Helmet } from 'react-helmet-async';
 import '../styles/MemeGallery.css';
 import LikeButton from './LikeButton';
+import { useLikes } from '../context/LikesContext';
 
 // Import components used by MemePage
 const LazyVideo = React.memo(({ videoUrl, thumbnailUrl, videoType = "video/mp4" }) => {
@@ -310,6 +312,60 @@ function MemePage() {
   const [thumbnail, setThumbnail] = useState(null);
   const [similarSubreddits, setSimilarSubreddits] = useState([]);
 
+  const { isSignedIn } = useUser();
+  const { openSignIn } = useClerk();
+  const { toggleLike, isLiked } = useLikes();
+  const [tapEffects, setTapEffects] = useState([]);
+  const lastTapRef = useRef(0);
+
+  const addTapEffect = useCallback((x, y) => {
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setTapEffects((prev) => [...prev, { id, x, y }]);
+    setTimeout(() => {
+      setTapEffects((prev) => prev.filter((effect) => effect.id !== id));
+    }, 700);
+  }, []);
+
+  const getEventPoint = (event) => {
+    if (event.changedTouches && event.changedTouches[0]) return event.changedTouches[0];
+    if (event.touches && event.touches[0]) return event.touches[0];
+    return event;
+  };
+
+  const handleDoubleTap = useCallback((event) => {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const memeData = meme?.data || meme;
+    const currentMemeId = memeData?.id;
+    if (!currentMemeId) return;
+
+    if (!isSignedIn) {
+      openSignIn();
+      return;
+    }
+
+    if (!isLiked(currentMemeId)) {
+      toggleLike(meme);
+    }
+
+    const point = getEventPoint(event);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = point.clientX - rect.left;
+    const y = point.clientY - rect.top;
+    addTapEffect(x, y);
+  }, [addTapEffect, isSignedIn, openSignIn, isLiked, meme, toggleLike]);
+
+  const handleTouchEnd = useCallback((event) => {
+    const now = Date.now();
+    const delta = now - lastTapRef.current;
+    lastTapRef.current = now;
+
+    if (delta > 0 && delta < 300) {
+      handleDoubleTap(event);
+    }
+  }, [handleDoubleTap]);
+
   useEffect(() => {
     setIsLoading(true);
     setError(null);
@@ -552,8 +608,22 @@ function MemePage() {
         
         <h1 className="text-2xl font-bold mb-6 leading-tight">{meme.data.title}</h1>
         
-        <div className="mb-8 flex justify-center overflow-hidden rounded-xl border border-border bg-black shadow-sm">
+        <div
+          className="mb-8 flex justify-center overflow-hidden rounded-xl border border-border bg-black shadow-sm double-tap-container"
+          onDoubleClick={handleDoubleTap}
+          onTouchEnd={handleTouchEnd}
+        >
           {renderedMedia || <div className="flex h-64 w-full items-center justify-center text-muted-foreground">Loading media...</div>}
+          {tapEffects.map((effect) => (
+            <span
+              key={effect.id}
+              className="double-tap-heart"
+              style={{ left: effect.x, top: effect.y }}
+              aria-hidden="true"
+            >
+              ❤
+            </span>
+          ))}
         </div>
         
         <div className="rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm">
