@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
+const { query } = require('../config/db');
 
 // In-memory cache for Reddit API responses
 const cache = new Map();
@@ -151,6 +152,49 @@ router.get('/redgifs/:id', async (req, res) => {
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Likes endpoints
+router.get('/likes/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const likes = await query('SELECT meme_data FROM likes WHERE user_id = ? ORDER BY created_at DESC', [userId]);
+    res.json(likes.map(l => l.meme_data));
+  } catch (error) {
+    console.error('Error fetching likes:', error);
+    res.status(500).json({ error: 'Failed to fetch likes' });
+  }
+});
+
+router.post('/likes', async (req, res) => {
+  const { userId, meme } = req.body;
+  if (!userId || !meme) {
+    return res.status(400).json({ error: 'userId and meme are required' });
+  }
+  
+  const memeId = meme.id || (meme.data && meme.data.id);
+  
+  try {
+    await query(
+      'INSERT INTO likes (user_id, meme_id, meme_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE meme_data = ?',
+      [userId, memeId, JSON.stringify(meme), JSON.stringify(meme)]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving like:', error);
+    res.status(500).json({ error: 'Failed to save like' });
+  }
+});
+
+router.delete('/likes/:userId/:memeId', async (req, res) => {
+  const { userId, memeId } = req.params;
+  try {
+    await query('DELETE FROM likes WHERE user_id = ? AND meme_id = ?', [userId, memeId]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting like:', error);
+    res.status(500).json({ error: 'Failed to delete like' });
+  }
 });
 
 module.exports = router;

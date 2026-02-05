@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { debouncedFetch, exponentialBackoff } from '../utils/apiUtils';
 import { REDDIT_API_CONFIG } from '../config/redditApi';
@@ -245,7 +245,7 @@ const TikTokImage = ({ imageUrl, title }) => {
   );
 };
 
-function TikTokFeed({ subreddit = 'memes' }) {
+function TikTokFeed({ subreddit, username }) {
   const [memes, setMemes] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -257,19 +257,30 @@ function TikTokFeed({ subreddit = 'memes' }) {
   
   const containerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
+  const isLoadingRef = useRef(false);
   const minSwipeDistance = 50;
   const navigate = useNavigate();
 
   // Fetch memes from Reddit API
   const fetchMemes = useCallback(async (afterToken = null) => {
-    if (isLoading) return;
+    if (isLoadingRef.current) return;
     
+    isLoadingRef.current = true;
     setIsLoading(true);
     
     const limit = REDDIT_API_CONFIG.MEMES_PER_REQUEST;
-    const url = afterToken 
-      ? `https://www.reddit.com/r/${subreddit}.json?after=${afterToken}&limit=${limit}&include_over_18=1`
-      : `https://www.reddit.com/r/${subreddit}.json?limit=${limit}&include_over_18=1`;
+    let url;
+    
+    if (username) {
+      url = afterToken 
+        ? `https://www.reddit.com/user/${username}/submitted.json?after=${afterToken}&limit=${limit}&include_over_18=1`
+        : `https://www.reddit.com/user/${username}/submitted.json?limit=${limit}&include_over_18=1`;
+    } else {
+      const sub = subreddit || 'memes';
+      url = afterToken 
+        ? `https://www.reddit.com/r/${sub}.json?after=${afterToken}&limit=${limit}&include_over_18=1`
+        : `https://www.reddit.com/r/${sub}.json?limit=${limit}&include_over_18=1`;
+    }
     
     try {
       const response = await exponentialBackoff(async () => {
@@ -331,8 +342,9 @@ function TikTokFeed({ subreddit = 'memes' }) {
       console.error('Error fetching memes:', error);
     } finally {
       setIsLoading(false);
+      isLoadingRef.current = false;
     }
-  }, [subreddit, isLoading]);
+  }, [subreddit, username]);
 
   // Initial fetch
   useEffect(() => {
@@ -341,7 +353,7 @@ function TikTokFeed({ subreddit = 'memes' }) {
     setAfter(null);
     setHasMore(true);
     fetchMemes();
-  }, [subreddit]);
+  }, [subreddit, username, fetchMemes]);
 
   // Load more when near the end
   useEffect(() => {
@@ -616,7 +628,7 @@ function TikTokFeed({ subreddit = 'memes' }) {
       onTouchEnd={onTouchEnd}
     >
       <Helmet>
-        <title>{`r/${subreddit} - twiix`}</title>
+        <title>{username ? `u/${username} - twiix` : (subreddit ? `r/${subreddit} - twiix` : 'twiix')}</title>
       </Helmet>
 
       {/* Media type badge (top right) */}
@@ -625,9 +637,9 @@ function TikTokFeed({ subreddit = 'memes' }) {
         <span>{getMediaTypeLabel(mediaType)}</span>
       </div>
 
-      {/* Subreddit badge (top left) */}
+      {/* Context badge (top left) */}
       <div className="tiktok-subreddit-badge">
-        r/{subreddit}
+        {username ? `u/${username}` : `r/${subreddit || 'memes'}`}
       </div>
 
       {/* Main content area */}
@@ -674,7 +686,9 @@ function TikTokFeed({ subreddit = 'memes' }) {
       <div className="tiktok-info">
         <h3 className="tiktok-title">{currentMeme.data.title}</h3>
         <div className="tiktok-meta">
-          <span>u/{currentMeme.data.author}</span>
+          <Link to={`/u/${currentMeme.data.author}`} className="tiktok-author-link">
+            u/{currentMeme.data.author}
+          </Link>
           <span>•</span>
           <span>{currentMeme.data.score} points</span>
           {currentMeme.data.link_flair_text && (

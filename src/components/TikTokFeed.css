@@ -132,6 +132,19 @@
   gap: 8px;
   color: rgba(255, 255, 255, 0.7);
   font-size: 13px;
+  align-items: center;
+}
+
+.tiktok-author-link {
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.tiktok-author-link:hover {
+  color: #3b82f6; /* Blue hover color */
+  text-decoration: underline;
 }
 
 .tiktok-flair {

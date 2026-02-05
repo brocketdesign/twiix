@@ -37,6 +37,7 @@ function App() {
           <Route path="/subreddits" element={<SubredditsPage />} />
           <Route path="/likes" element={<LikesPage />} />
           <Route path="/r/:subreddit" element={<SubredditRoute />} />
+          <Route path="/u/:username" element={<UserRoute />} />
           <Route path="/r/:subreddit/:memeId" element={<MemePage />} />
         </Routes>
       </main>
@@ -47,6 +48,11 @@ function App() {
 function SubredditRoute() {
   const { subreddit } = useParams();
   return <TikTokFeed subreddit={subreddit} />;
+}
+
+function UserRoute() {
+  const { username } = useParams();
+  return <TikTokFeed username={username} />;
 }
 
 export default App;

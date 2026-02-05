@@ -17,16 +17,34 @@ export function LikesProvider({ children }) {
     return isSignedIn && user ? `likes_${user.id}` : 'likes_anonymous';
   }, [isSignedIn, user]);
 
-  // Load likes from localStorage
+  // Load likes from localStorage or Backend
   useEffect(() => {
-    const loadLikes = () => {
+    const loadLikes = async () => {
+      setIsLoading(true);
       try {
-        const storageKey = getStorageKey();
-        const storedLikes = localStorage.getItem(storageKey);
-        if (storedLikes) {
-          setLikes(JSON.parse(storedLikes));
+        if (isSignedIn && user) {
+          // Load from Backend for authenticated users
+          const response = await fetch(`/api/likes/${user.id}`);
+          if (response.ok) {
+            const backendLikes = await response.json();
+            setLikes(backendLikes);
+            // Optionally sync to localStorage as well
+            localStorage.setItem(`likes_${user.id}`, JSON.stringify(backendLikes));
+          } else {
+            console.error('Failed to fetch likes from backend');
+            // Fallback to local storage
+            const storedLikes = localStorage.getItem(`likes_${user.id}`);
+            if (storedLikes) setLikes(JSON.parse(storedLikes));
+          }
         } else {
-          setLikes([]);
+          // Load from localStorage for anonymous users
+          const storageKey = getStorageKey();
+          const storedLikes = localStorage.getItem(storageKey);
+          if (storedLikes) {
+            setLikes(JSON.parse(storedLikes));
+          } else {
+            setLikes([]);
+          }
         }
       } catch (error) {
         console.error('Error loading likes:', error);
@@ -37,7 +55,7 @@ export function LikesProvider({ children }) {
     };
 
     loadLikes();
-  }, [getStorageKey]);
+  }, [isSignedIn, user, getStorageKey]);
 
   // Save likes to localStorage whenever they change
   useEffect(() => {
@@ -52,7 +70,7 @@ export function LikesProvider({ children }) {
   }, [likes, isLoading, getStorageKey]);
 
   // Add a like
-  const addLike = useCallback((meme) => {
+  const addLike = useCallback(async (meme) => {
     const memeData = meme.data || meme;
     const likeEntry = {
       id: memeData.id,
@@ -76,19 +94,49 @@ export function LikesProvider({ children }) {
       likedAt: Date.now(),
     };
 
+    // Optimistically update UI
     setLikes((prevLikes) => {
-      // Check if already liked
       if (prevLikes.some((like) => like.id === likeEntry.id)) {
         return prevLikes;
       }
       return [likeEntry, ...prevLikes];
     });
-  }, []);
+
+    // Save to Backend if signed in
+    if (isSignedIn && user) {
+      try {
+        await fetch('/api/likes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: user.id,
+            meme: likeEntry,
+          }),
+        });
+      } catch (error) {
+        console.error('Error saving like to backend:', error);
+      }
+    }
+  }, [isSignedIn, user]);
 
   // Remove a like
-  const removeLike = useCallback((memeId) => {
+  const removeLike = useCallback(async (memeId) => {
+    // Optimistically update UI
     setLikes((prevLikes) => prevLikes.filter((like) => like.id !== memeId));
-  }, []);
+
+    // Remove from Backend if signed in
+    if (isSignedIn && user) {
+      try {
+        await fetch(`/api/likes/${user.id}/${memeId}`, {
+          method: 'DELETE',
+        });
+      } catch (error) {
+        console.error('Error removing like from backend:', error);
+      }
+    }
+  }, [isSignedIn, user]);
 
   // Toggle like
   const toggleLike = useCallback((meme) => {

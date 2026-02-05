@@ -1,11 +1,16 @@
 const express = require('express');
 const { getGif } = require('redgif');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const cors = require('cors');
 const apiRoutes = require('./routes/api');
+const { initializeDb } = require('./config/db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Initialize Database
+initializeDb();
 
 // Middleware
 app.use(cors());
