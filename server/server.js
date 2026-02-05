@@ -1,9 +1,18 @@
 const express = require('express');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const apiRoutes = require('./routes/api');
+const { initializeDb } = require('./config/db');
 
 const app = express();
 const PORT = process.env.PORT || 6000;
+
+// Initialize Database
+initializeDb().then(() => {
+  console.log('Database tables initialized');
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+});
 
 // Middleware
 app.use(express.json());

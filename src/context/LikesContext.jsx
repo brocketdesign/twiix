@@ -24,17 +24,35 @@ export function LikesProvider({ children }) {
       try {
         if (isSignedIn && user) {
           // Load from Backend for authenticated users
+          console.log('Fetching likes for user:', user.id);
           const response = await fetch(`/api/likes/${user.id}`);
           if (response.ok) {
             const backendLikes = await response.json();
+            console.log('Loaded likes from backend:', backendLikes.length);
             setLikes(backendLikes);
-            // Optionally sync to localStorage as well
+            // Sync to localStorage as backup
             localStorage.setItem(`likes_${user.id}`, JSON.stringify(backendLikes));
           } else {
-            console.error('Failed to fetch likes from backend');
+            console.error('Failed to fetch likes from backend, status:', response.status);
             // Fallback to local storage
             const storedLikes = localStorage.getItem(`likes_${user.id}`);
-            if (storedLikes) setLikes(JSON.parse(storedLikes));
+            if (storedLikes) {
+              const parsedLikes = JSON.parse(storedLikes);
+              setLikes(parsedLikes);
+              // Try to sync localStorage likes to backend
+              console.log('Syncing localStorage likes to backend...');
+              for (const like of parsedLikes) {
+                try {
+                  await fetch('/api/likes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: user.id, meme: like }),
+                  });
+                } catch (syncError) {
+                  console.error('Failed to sync like to backend:', syncError);
+                }
+              }
+            }
           }
         } else {
           // Load from localStorage for anonymous users
@@ -48,6 +66,13 @@ export function LikesProvider({ children }) {
         }
       } catch (error) {
         console.error('Error loading likes:', error);
+        // Fallback to localStorage on network error
+        if (isSignedIn && user) {
+          const storedLikes = localStorage.getItem(`likes_${user.id}`);
+          if (storedLikes) {
+            setLikes(JSON.parse(storedLikes));
+          }
+        }
         setLikes([]);
       } finally {
         setIsLoading(false);
@@ -105,7 +130,8 @@ export function LikesProvider({ children }) {
     // Save to Backend if signed in
     if (isSignedIn && user) {
       try {
-        await fetch('/api/likes', {
+        console.log('Saving like to backend for user:', user.id, 'meme:', likeEntry.id);
+        const response = await fetch('/api/likes', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -115,6 +141,11 @@ export function LikesProvider({ children }) {
             meme: likeEntry,
           }),
         });
+        if (!response.ok) {
+          console.error('Failed to save like to backend, status:', response.status);
+        } else {
+          console.log('Like saved successfully to backend');
+        }
       } catch (error) {
         console.error('Error saving like to backend:', error);
       }
@@ -129,9 +160,15 @@ export function LikesProvider({ children }) {
     // Remove from Backend if signed in
     if (isSignedIn && user) {
       try {
-        await fetch(`/api/likes/${user.id}/${memeId}`, {
+        console.log('Removing like from backend for user:', user.id, 'meme:', memeId);
+        const response = await fetch(`/api/likes/${user.id}/${memeId}`, {
           method: 'DELETE',
         });
+        if (!response.ok) {
+          console.error('Failed to remove like from backend, status:', response.status);
+        } else {
+          console.log('Like removed successfully from backend');
+        }
       } catch (error) {
         console.error('Error removing like from backend:', error);
       }

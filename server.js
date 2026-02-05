@@ -1,12 +1,31 @@
 const express = require('express');
 const path = require('path');
+require('dotenv').config();
+const cors = require('cors');
+const apiRoutes = require('./server/routes/api');
+const { initializeDb } = require('./server/config/db');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize Database
+initializeDb().then(() => {
+  console.log('Database tables initialized');
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+});
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// API Routes - must come before static file serving
+app.use('/api', apiRoutes);
 
 // Serve static files from the React build
 app.use(express.static(path.join(__dirname, 'build')));
 
-// For any request that doesn't match a static file, send the index.html
+// For any request that doesn't match a static file or API route, send the index.html
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });

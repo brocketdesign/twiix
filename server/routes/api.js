@@ -157,42 +157,61 @@ router.get('/health', (req, res) => {
 // Likes endpoints
 router.get('/likes/:userId', async (req, res) => {
   const { userId } = req.params;
+  console.log('[Likes] Fetching likes for user:', userId);
   try {
     const likes = await query('SELECT meme_data FROM likes WHERE user_id = ? ORDER BY created_at DESC', [userId]);
-    res.json(likes.map(l => l.meme_data));
+    console.log('[Likes] Found', likes.length, 'likes for user:', userId);
+    // Parse the meme_data JSON for each like
+    const parsedLikes = likes.map(l => {
+      if (typeof l.meme_data === 'string') {
+        return JSON.parse(l.meme_data);
+      }
+      return l.meme_data;
+    });
+    res.json(parsedLikes);
   } catch (error) {
-    console.error('Error fetching likes:', error);
+    console.error('[Likes] Error fetching likes:', error);
     res.status(500).json({ error: 'Failed to fetch likes' });
   }
 });
 
 router.post('/likes', async (req, res) => {
   const { userId, meme } = req.body;
+  console.log('[Likes] Saving like for user:', userId, 'meme:', meme?.id);
   if (!userId || !meme) {
+    console.error('[Likes] Missing userId or meme in request body');
     return res.status(400).json({ error: 'userId and meme are required' });
   }
   
   const memeId = meme.id || (meme.data && meme.data.id);
   
+  if (!memeId) {
+    console.error('[Likes] Could not determine meme ID from:', meme);
+    return res.status(400).json({ error: 'Could not determine meme ID' });
+  }
+  
   try {
     await query(
-      'INSERT INTO likes (user_id, meme_id, meme_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE meme_data = ?',
-      [userId, memeId, JSON.stringify(meme), JSON.stringify(meme)]
+      'INSERT INTO likes (user_id, meme_id, meme_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE meme_data = VALUES(meme_data)',
+      [userId, memeId, JSON.stringify(meme)]
     );
+    console.log('[Likes] Successfully saved like for user:', userId, 'meme:', memeId);
     res.json({ success: true });
   } catch (error) {
-    console.error('Error saving like:', error);
+    console.error('[Likes] Error saving like:', error);
     res.status(500).json({ error: 'Failed to save like' });
   }
 });
 
 router.delete('/likes/:userId/:memeId', async (req, res) => {
   const { userId, memeId } = req.params;
+  console.log('[Likes] Deleting like for user:', userId, 'meme:', memeId);
   try {
-    await query('DELETE FROM likes WHERE user_id = ? AND meme_id = ?', [userId, memeId]);
+    const result = await query('DELETE FROM likes WHERE user_id = ? AND meme_id = ?', [userId, memeId]);
+    console.log('[Likes] Delete result:', result);
     res.json({ success: true });
   } catch (error) {
-    console.error('Error deleting like:', error);
+    console.error('[Likes] Error deleting like:', error);
     res.status(500).json({ error: 'Failed to delete like' });
   }
 });
