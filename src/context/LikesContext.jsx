@@ -66,14 +66,14 @@ export function LikesProvider({ children }) {
         }
       } catch (error) {
         console.error('Error loading likes:', error);
-        // Fallback to localStorage on network error
+        // Fallback to localStorage on network error — do NOT reset to empty
         if (isSignedIn && user) {
           const storedLikes = localStorage.getItem(`likes_${user.id}`);
           if (storedLikes) {
             setLikes(JSON.parse(storedLikes));
           }
+          // If no localStorage either, leave likes as-is (don't overwrite with [])
         }
-        setLikes([]);
       } finally {
         setIsLoading(false);
       }

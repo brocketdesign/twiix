@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
-const { query } = require('../config/db');
+const { query, rawQuery } = require('../config/db');
 
 // In-memory cache for Reddit API responses
 const cache = new Map();
@@ -213,6 +213,45 @@ router.delete('/likes/:userId/:memeId', async (req, res) => {
   } catch (error) {
     console.error('[Likes] Error deleting like:', error);
     res.status(500).json({ error: 'Failed to delete like' });
+  }
+});
+
+// === Seen Memes endpoints ===
+
+// Get seen meme IDs for a user + feed key
+router.get('/seen/:userId/:feedKey', async (req, res) => {
+  const { userId, feedKey } = req.params;
+  try {
+    const rows = await query(
+      'SELECT meme_id FROM seen_memes WHERE user_id = ? AND feed_key = ?',
+      [userId, feedKey]
+    );
+    const ids = rows.map(r => r.meme_id);
+    res.json(ids);
+  } catch (error) {
+    console.error('[Seen] Error fetching seen memes:', error);
+    res.status(500).json({ error: 'Failed to fetch seen memes' });
+  }
+});
+
+// Batch add seen meme IDs
+router.post('/seen', async (req, res) => {
+  const { userId, feedKey, memeIds } = req.body;
+  if (!userId || !feedKey || !Array.isArray(memeIds) || memeIds.length === 0) {
+    return res.status(400).json({ error: 'userId, feedKey, and memeIds[] are required' });
+  }
+  try {
+    // Use INSERT IGNORE to skip duplicates — use rawQuery for dynamic placeholders
+    const placeholders = memeIds.map(() => '(?, ?, ?)').join(', ');
+    const values = memeIds.flatMap(id => [userId, feedKey, id]);
+    await rawQuery(
+      `INSERT IGNORE INTO seen_memes (user_id, feed_key, meme_id) VALUES ${placeholders}`,
+      values
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Seen] Error saving seen memes:', error);
+    res.status(500).json({ error: 'Failed to save seen memes' });
   }
 });
 

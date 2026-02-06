@@ -36,6 +36,18 @@ async function query(sql, params) {
   }
 }
 
+// For queries with dynamic number of placeholders (e.g. batch inserts)
+async function rawQuery(sql, params) {
+  try {
+    const [results] = await pool.query(sql, params);
+    return results;
+  } catch (error) {
+    console.error('[DB] Raw query error:', error.message);
+    console.error('[DB] SQL:', sql);
+    throw error;
+  }
+}
+
 // Function to initialize the database tables
 async function initializeDb() {
   try {
@@ -51,6 +63,17 @@ async function initializeDb() {
         INDEX idx_user_id (user_id)
       )
     `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS seen_memes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        meme_id VARCHAR(255) NOT NULL,
+        feed_key VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY user_feed_meme (user_id, feed_key, meme_id),
+        INDEX idx_user_feed (user_id, feed_key)
+      )
+    `);
     console.log('[DB] Database tables initialized successfully');
   } catch (error) {
     console.error('[DB] Error initializing database:', error);
@@ -60,6 +83,7 @@ async function initializeDb() {
 
 module.exports = {
   query,
+  rawQuery,
   pool,
   initializeDb
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
+import { useUser } from '@clerk/clerk-react';
 import { debouncedFetch, exponentialBackoff } from '../utils/apiUtils';
 import { REDDIT_API_CONFIG } from '../config/redditApi';
 import LikeButton from './LikeButton';
@@ -256,11 +257,14 @@ function TikTokFeed({ subreddit, username }) {
   const [isScrolling, setIsScrolling] = useState(false);
   const [seenIds, setSeenIds] = useState(new Set());
   const seenIdsRef = useRef(new Set());
+  const pendingSeenRef = useRef([]);
+  const seenFlushTimerRef = useRef(null);
   const containerRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
   const isLoadingRef = useRef(false);
   const minSwipeDistance = 50;
   const navigate = useNavigate();
+  const { user, isSignedIn } = useUser();
 
   const getSeenStorageKey = useCallback(() => {
     if (username) {
@@ -270,21 +274,48 @@ function TikTokFeed({ subreddit, username }) {
     return `seen_memes_subreddit_${sub}`;
   }, [subreddit, username]);
 
-  const loadSeenIds = useCallback(() => {
+  const loadSeenIds = useCallback(async () => {
     const storageKey = getSeenStorageKey();
+    let localSet = new Set();
     try {
       const raw = localStorage.getItem(storageKey);
       const parsed = raw ? JSON.parse(raw) : [];
-      const setFromStorage = new Set(Array.isArray(parsed) ? parsed : []);
-      seenIdsRef.current = setFromStorage;
-      setSeenIds(setFromStorage);
+      localSet = new Set(Array.isArray(parsed) ? parsed : []);
     } catch (error) {
       console.error('Failed to load seen memes from storage:', error);
-      const emptySet = new Set();
-      seenIdsRef.current = emptySet;
-      setSeenIds(emptySet);
     }
-  }, [getSeenStorageKey]);
+
+    // If signed in, merge with backend seen memes
+    if (isSignedIn && user) {
+      try {
+        const feedKey = storageKey;
+        const response = await fetch(`/api/seen/${user.id}/${encodeURIComponent(feedKey)}`);
+        if (response.ok) {
+          const backendIds = await response.json();
+          const merged = new Set([...localSet, ...backendIds]);
+          seenIdsRef.current = merged;
+          setSeenIds(merged);
+          localStorage.setItem(storageKey, JSON.stringify(Array.from(merged)));
+
+          // Sync any local-only IDs to the backend
+          const localOnly = Array.from(localSet).filter(id => !backendIds.includes(id));
+          if (localOnly.length > 0) {
+            fetch('/api/seen', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: user.id, feedKey, memeIds: localOnly }),
+            }).catch(err => console.error('Failed to sync local seen IDs:', err));
+          }
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to load seen memes from backend:', error);
+      }
+    }
+
+    seenIdsRef.current = localSet;
+    setSeenIds(localSet);
+  }, [getSeenStorageKey, isSignedIn, user]);
 
   const persistSeenIds = useCallback((setToPersist) => {
     const storageKey = getSeenStorageKey();
@@ -294,6 +325,19 @@ function TikTokFeed({ subreddit, username }) {
       console.error('Failed to persist seen memes:', error);
     }
   }, [getSeenStorageKey]);
+
+  // Flush pending seen IDs to the backend in batches
+  const flushPendingSeen = useCallback(() => {
+    if (!isSignedIn || !user || pendingSeenRef.current.length === 0) return;
+    const feedKey = getSeenStorageKey();
+    const batch = [...pendingSeenRef.current];
+    pendingSeenRef.current = [];
+    fetch('/api/seen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, feedKey, memeIds: batch }),
+    }).catch(err => console.error('Failed to flush seen IDs to backend:', err));
+  }, [isSignedIn, user, getSeenStorageKey]);
 
   // Fetch memes from Reddit API
   const fetchMemes = useCallback(async (afterToken = null) => {
@@ -413,8 +457,28 @@ function TikTokFeed({ subreddit, username }) {
       seenIdsRef.current = updatedSeen;
       setSeenIds(updatedSeen);
       persistSeenIds(updatedSeen);
+
+      // Queue for backend flush
+      pendingSeenRef.current.push(memeId);
+      if (seenFlushTimerRef.current) clearTimeout(seenFlushTimerRef.current);
+      seenFlushTimerRef.current = setTimeout(flushPendingSeen, 3000);
     }
-  }, [currentIndex, memes, persistSeenIds]);
+  }, [currentIndex, memes, persistSeenIds, flushPendingSeen]);
+
+  // Flush remaining seen IDs on unmount
+  useEffect(() => {
+    return () => {
+      if (seenFlushTimerRef.current) clearTimeout(seenFlushTimerRef.current);
+      // Fire off any remaining
+      if (pendingSeenRef.current.length > 0 && isSignedIn && user) {
+        const feedKey = getSeenStorageKey();
+        const batch = [...pendingSeenRef.current];
+        pendingSeenRef.current = [];
+        const blob = new Blob([JSON.stringify({ userId: user.id, feedKey, memeIds: batch })], { type: 'application/json' });
+        navigator.sendBeacon('/api/seen', blob);
+      }
+    };
+  }, [isSignedIn, user, getSeenStorageKey]);
 
   // Handle vertical swipe
   const onTouchStart = (e) => {
