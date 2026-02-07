@@ -356,6 +356,26 @@ function MemeGallery({ subreddit = 'memes' }) {
 
   const loadSeenIds = useCallback(async () => {
     const storageKey = getSeenStorageKey();
+
+    // Signed-in users: database is the single source of truth
+    if (isSignedIn && user) {
+      try {
+        const feedKey = storageKey;
+        const response = await fetch(`/api/seen/${user.id}/${encodeURIComponent(feedKey)}`);
+        if (response.ok) {
+          const backendIds = await response.json();
+          const dbSet = new Set(backendIds);
+          setSeenIds(dbSet);
+          return dbSet;
+        }
+      } catch (error) {
+        console.error('Failed to load seen memes from database:', error);
+      }
+      setSeenIds(new Set());
+      return new Set();
+    }
+
+    // Anonymous users: localStorage only
     let localSet = new Set();
     try {
       const raw = localStorage.getItem(storageKey);
@@ -365,45 +385,20 @@ function MemeGallery({ subreddit = 'memes' }) {
       console.error('Failed to load seen memes from storage:', error);
     }
 
-    // If signed in, merge with backend seen memes
-    if (isSignedIn && user) {
-      try {
-        const feedKey = storageKey;
-        const response = await fetch(`/api/seen/${user.id}/${encodeURIComponent(feedKey)}`);
-        if (response.ok) {
-          const backendIds = await response.json();
-          const merged = new Set([...localSet, ...backendIds]);
-          setSeenIds(merged);
-          localStorage.setItem(storageKey, JSON.stringify(Array.from(merged)));
-
-          // Sync any local-only IDs to the backend
-          const localOnly = Array.from(localSet).filter(id => !backendIds.includes(id));
-          if (localOnly.length > 0) {
-            fetch('/api/seen', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: user.id, feedKey, memeIds: localOnly }),
-            }).catch(err => console.error('Failed to sync local seen IDs:', err));
-          }
-          return merged;
-        }
-      } catch (error) {
-        console.error('Failed to load seen memes from backend:', error);
-      }
-    }
-
     setSeenIds(localSet);
     return localSet;
   }, [getSeenStorageKey, isSignedIn, user]);
 
   const persistSeenIds = useCallback((setToPersist) => {
+    // Only use localStorage for anonymous users; signed-in users persist via flushPendingSeen
+    if (isSignedIn && user) return;
     const storageKey = getSeenStorageKey();
     try {
       localStorage.setItem(storageKey, JSON.stringify(Array.from(setToPersist)));
     } catch (error) {
       console.error('Failed to persist seen memes:', error);
     }
-  }, [getSeenStorageKey]);
+  }, [getSeenStorageKey, isSignedIn, user]);
 
   // Flush pending seen IDs to the backend in batches
   const flushPendingSeen = useCallback(() => {

@@ -12,52 +12,26 @@ export function LikesProvider({ children }) {
   const [likes, setLikes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Storage key based on user ID for authenticated users
-  const getStorageKey = useCallback(() => {
-    return isSignedIn && user ? `likes_${user.id}` : 'likes_anonymous';
-  }, [isSignedIn, user]);
-
-  // Load likes from localStorage or Backend
+  // Load likes: from database for signed-in users, localStorage for anonymous
   useEffect(() => {
     const loadLikes = async () => {
       setIsLoading(true);
       try {
         if (isSignedIn && user) {
-          // Load from Backend for authenticated users
-          console.log('Fetching likes for user:', user.id);
+          // Database is the single source of truth for signed-in users
+          console.log('Fetching likes from database for user:', user.id);
           const response = await fetch(`/api/likes/${user.id}`);
           if (response.ok) {
             const backendLikes = await response.json();
-            console.log('Loaded likes from backend:', backendLikes.length);
+            console.log('Loaded likes from database:', backendLikes.length);
             setLikes(backendLikes);
-            // Sync to localStorage as backup
-            localStorage.setItem(`likes_${user.id}`, JSON.stringify(backendLikes));
           } else {
-            console.error('Failed to fetch likes from backend, status:', response.status);
-            // Fallback to local storage
-            const storedLikes = localStorage.getItem(`likes_${user.id}`);
-            if (storedLikes) {
-              const parsedLikes = JSON.parse(storedLikes);
-              setLikes(parsedLikes);
-              // Try to sync localStorage likes to backend
-              console.log('Syncing localStorage likes to backend...');
-              for (const like of parsedLikes) {
-                try {
-                  await fetch('/api/likes', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: user.id, meme: like }),
-                  });
-                } catch (syncError) {
-                  console.error('Failed to sync like to backend:', syncError);
-                }
-              }
-            }
+            console.error('Failed to fetch likes from database, status:', response.status);
+            setLikes([]);
           }
         } else {
-          // Load from localStorage for anonymous users
-          const storageKey = getStorageKey();
-          const storedLikes = localStorage.getItem(storageKey);
+          // localStorage for anonymous users only
+          const storedLikes = localStorage.getItem('likes_anonymous');
           if (storedLikes) {
             setLikes(JSON.parse(storedLikes));
           } else {
@@ -66,13 +40,11 @@ export function LikesProvider({ children }) {
         }
       } catch (error) {
         console.error('Error loading likes:', error);
-        // Fallback to localStorage on network error — do NOT reset to empty
-        if (isSignedIn && user) {
-          const storedLikes = localStorage.getItem(`likes_${user.id}`);
+        if (!isSignedIn) {
+          const storedLikes = localStorage.getItem('likes_anonymous');
           if (storedLikes) {
             setLikes(JSON.parse(storedLikes));
           }
-          // If no localStorage either, leave likes as-is (don't overwrite with [])
         }
       } finally {
         setIsLoading(false);
@@ -80,19 +52,18 @@ export function LikesProvider({ children }) {
     };
 
     loadLikes();
-  }, [isSignedIn, user, getStorageKey]);
+  }, [isSignedIn, user]);
 
-  // Save likes to localStorage whenever they change
+  // Save to localStorage ONLY for anonymous users
   useEffect(() => {
-    if (!isLoading) {
+    if (!isLoading && !isSignedIn) {
       try {
-        const storageKey = getStorageKey();
-        localStorage.setItem(storageKey, JSON.stringify(likes));
+        localStorage.setItem('likes_anonymous', JSON.stringify(likes));
       } catch (error) {
-        console.error('Error saving likes:', error);
+        console.error('Error saving likes to localStorage:', error);
       }
     }
-  }, [likes, isLoading, getStorageKey]);
+  }, [likes, isLoading, isSignedIn]);
 
   // Add a like
   const addLike = useCallback(async (meme) => {
