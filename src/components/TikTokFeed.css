@@ -107,7 +107,7 @@
   position: absolute;
   bottom: 0;
   left: 0;
-  right: 80px;
+  right: 0px;
   z-index: 100;
   padding: 20px 16px 40px;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
@@ -486,7 +486,7 @@
   }
 
   .tiktok-info {
-    right: 70px;
+    right: 0px;
     padding: 16px 12px 30px;
   }
 
