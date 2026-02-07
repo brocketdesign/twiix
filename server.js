@@ -8,13 +8,6 @@ const { initializeDb } = require('./server/config/db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize Database
-initializeDb().then(() => {
-  console.log('Database tables initialized');
-}).catch(err => {
-  console.error('Failed to initialize database:', err);
-});
-
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -30,6 +23,15 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+// Initialize database before accepting requests
+initializeDb()
+  .then(() => {
+    console.log('Database tables initialized');
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
