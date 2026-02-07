@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Reddit Meme Gallery application uses **MySQL** as its database system to persist user likes across sessions and devices. The database implementation follows a simple, focused design that stores only the essential data needed for the likes feature.
+The Reddit Meme Gallery application uses **MongoDB** as its database system to persist user likes and seen memes across sessions and devices. The database implementation follows a simple, focused design that stores only the essential data needed for the likes and tracking features.
 
 ---
 
@@ -10,44 +10,55 @@ The Reddit Meme Gallery application uses **MySQL** as its database system to per
 
 | Component | Technology |
 |-----------|------------|
-| Database | MySQL |
-| Driver | `mysql2/promise` (Node.js) |
-| Connection | Connection Pool |
-| ORM | None (Raw SQL queries) |
+| Database | MongoDB Atlas |
+| Driver | `mongodb` (Node.js) |
+| Connection | MongoDB Client |
+| ORM | None (Native MongoDB driver) |
 
 ---
 
 ## Database Schema
 
-### Table: `likes`
+### Collection: `likes`
 
-The application uses a single table to store all user likes:
+Stores all user likes:
 
-```sql
-CREATE TABLE IF NOT EXISTS likes (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id VARCHAR(255) NOT NULL,
-  meme_id VARCHAR(255) NOT NULL,
-  meme_data JSON NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY user_meme (user_id, meme_id)
-)
+```javascript
+{
+  _id: ObjectId,           // Auto-generated MongoDB ID
+  userId: String,          // Clerk authentication user ID (e.g., "user_2abc123...")
+  memeId: String,          // Reddit post ID (e.g., "1ab2cd3")
+  memeData: Object,        // Complete meme data object
+  createdAt: Date          // Timestamp when the like was created
+}
 ```
 
-#### Column Descriptions
+#### Indexes
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | INT (AUTO_INCREMENT) | Primary key, auto-incremented unique identifier |
-| `user_id` | VARCHAR(255) | Clerk authentication user ID (e.g., `user_2abc123...`) |
-| `meme_id` | VARCHAR(255) | Reddit post ID (e.g., `1ab2cd3`) |
-| `meme_data` | JSON | Complete meme data object stored as JSON |
-| `created_at` | TIMESTAMP | Timestamp when the like was created |
+- **Unique Compound Index**: `{ userId: 1, memeId: 1 }` - Prevents duplicate likes
+- **User Index**: `{ userId: 1 }` - Fast user-specific queries
+- **Date Index**: `{ createdAt: -1 }` - Efficient sorting by date
 
-#### Constraints
+---
 
-- **Primary Key**: `id` - Ensures each row is uniquely identifiable
-- **Unique Composite Key**: `(user_id, meme_id)` - Prevents duplicate likes from the same user for the same meme
+### Collection: `seen_memes`
+
+Tracks which memes a user has already seen:
+
+```javascript
+{
+  _id: ObjectId,           // Auto-generated MongoDB ID
+  userId: String,          // Clerk authentication user ID
+  feedKey: String,         // Identifier for the feed/subreddit
+  memeId: String,          // Reddit post ID
+  createdAt: Date          // Timestamp when marked as seen
+}
+```
+
+#### Indexes
+
+- **Unique Compound Index**: `{ userId: 1, feedKey: 1, memeId: 1 }` - Prevents duplicates
+- **User-Feed Index**: `{ userId: 1, feedKey: 1 }` - Fast feed-specific queries
 
 ---
 
@@ -55,11 +66,11 @@ CREATE TABLE IF NOT EXISTS likes (
 
 ### User Identification
 
-The `user_id` comes from **Clerk Authentication**. When a user signs in via Clerk (Google, email, etc.), their unique Clerk user ID is used to identify them in the database.
+The `userId` comes from **Clerk Authentication**. When a user signs in via Clerk (Google, email, etc.), their unique Clerk user ID is used to identify them in the database.
 
 ### Meme Data Structure
 
-The `meme_data` JSON column stores the complete meme object with the following fields:
+The `memeData` field stores the complete meme object with the following fields:
 
 ```json
 {
@@ -98,36 +109,33 @@ The full meme data is stored (denormalized) for several reasons:
 
 ## Connection Configuration
 
-The database connection is managed through a connection pool configured in [server/config/db.js](../server/config/db.js):
+The database connection is managed in [server/config/db.js](../server/config/db.js):
 
 ```javascript
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+const { MongoClient } = require('mongodb');
+
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.DB_NAME || 'twiix';
+
+let client = null;
+let db = null;
+
+async function connectToDatabase() {
+  if (db) return db;
+  
+  client = new MongoClient(MONGODB_URI);
+  await client.connect();
+  db = client.db(DB_NAME);
+  return db;
+}
 ```
 
 ### Environment Variables Required
 
-| Variable | Description | Default |
+| Variable | Description | Example |
 |----------|-------------|---------|
-| `DB_HOST` | MySQL server hostname | `localhost` |
-| `DB_USER` | MySQL username | Required |
-| `DB_PASSWORD` | MySQL password | Required |
-| `DB_NAME` | Database name | Required |
-
-### Connection Pool Settings
-
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| `waitForConnections` | `true` | Queue requests when no connections available |
-| `connectionLimit` | `10` | Maximum concurrent connections |
-| `queueLimit` | `0` | Unlimited queue (0 = no limit) |
+| `MONGODB_URI` | MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/` |
+| `DB_NAME` | Database name | `twiix` |
 
 ---
 
@@ -141,10 +149,9 @@ The database is accessed through REST API endpoints defined in [server/routes/ap
 
 Access this endpoint in your browser to get a visual diagnostic page showing:
 - Database connection status
-- Table existence verification
+- Collection existence verification
 - Write/Read/Delete operation tests
 - Database statistics (total likes, seen memes, unique users)
-- Connection pool status
 
 **URL:** `https://your-domain.com/api/debug`
 
@@ -157,20 +164,16 @@ Access this endpoint in your browser to get a visual diagnostic page showing:
   "timestamp": "2026-02-07T12:00:00.000Z",
   "environment": "production",
   "database": {
+    "type": "MongoDB",
     "connected": true,
-    "host": "your-db-host",
-    "name": "your-db-name",
-    "error": null,
-    "pool": {
-      "totalConnections": 10,
-      "freeConnections": 8,
-      "connectionLimit": 10
-    }
+    "name": "twiix",
+    "uri": "mongodb+srv://***:***@cluster.mongodb.net/",
+    "error": null
   },
   "tests": {
     "connection": { "passed": true, "message": "...", "duration": 5 },
-    "likesTableExists": { "passed": true, "message": "...", "duration": 3 },
-    "seenMemesTableExists": { "passed": true, "message": "...", "duration": 2 },
+    "likesCollectionExists": { "passed": true, "message": "...", "duration": 3 },
+    "seenMemesCollectionExists": { "passed": true, "message": "...", "duration": 2 },
     "writeTest": { "passed": true, "message": "...", "duration": 10 },
     "readTest": { "passed": true, "message": "...", "duration": 4 },
     "deleteTest": { "passed": true, "message": "...", "duration": 3 }
@@ -189,9 +192,12 @@ Access this endpoint in your browser to get a visual diagnostic page showing:
 
 Retrieves all likes for a specific user.
 
-**Logic:**
-```sql
-SELECT meme_data FROM likes WHERE user_id = ? ORDER BY created_at DESC
+**MongoDB Query:**
+```javascript
+db.collection('likes')
+  .find({ userId })
+  .sort({ createdAt: -1 })
+  .toArray()
 ```
 
 **Response:** Array of meme data objects, ordered by most recently liked
@@ -210,16 +216,18 @@ Adds a new like or updates existing like data.
 }
 ```
 
-**Logic:**
-```sql
-INSERT INTO likes (user_id, meme_id, meme_data) 
-VALUES (?, ?, ?) 
-ON DUPLICATE KEY UPDATE meme_data = ?
+**MongoDB Query:**
+```javascript
+db.collection('likes').updateOne(
+  { userId, memeId },
+  { $set: { userId, memeId, memeData: meme, createdAt: new Date() } },
+  { upsert: true }
+)
 ```
 
-The `ON DUPLICATE KEY UPDATE` clause ensures:
-- New likes are inserted normally
-- Re-liking an already-liked meme updates the stored data (upsert pattern)
+The `upsert: true` option ensures:
+- New likes are inserted if they don't exist
+- Existing likes are updated with new data
 
 ---
 
@@ -227,9 +235,9 @@ The `ON DUPLICATE KEY UPDATE` clause ensures:
 
 Removes a like from the database.
 
-**Logic:**
-```sql
-DELETE FROM likes WHERE user_id = ? AND meme_id = ?
+**MongoDB Query:**
+```javascript
+db.collection('likes').deleteOne({ userId, memeId })
 ```
 
 ---
@@ -260,12 +268,12 @@ DELETE FROM likes WHERE user_id = ? AND meme_id = ?
                      │
                      ▼
               ┌──────────────┐
-              │    MySQL     │
-              │   Database   │
+              │   MongoDB    │
+              │   Atlas      │
               │              │
               │ ┌──────────┐ │
               │ │  likes   │ │
-              │ │  table   │ │
+              │ │seen_memes│ │
               │ └──────────┘ │
               └──────────────┘
 ```
@@ -290,7 +298,7 @@ The [LikesContext.jsx](../src/context/LikesContext.jsx) implements a fallback me
 
 ```javascript
 if (isSignedIn && user) {
-  // Fetch from backend API → MySQL
+  // Fetch from backend API → MongoDB
   const response = await fetch(`/api/likes/${user.id}`);
   // ...
 } else {
@@ -309,7 +317,7 @@ if (isSignedIn && user) {
 
 ## Database Initialization
 
-The database table is automatically created on server startup via `initializeDb()`:
+The database collections and indexes are automatically created on server startup via `initializeDb()`:
 
 ```javascript
 // server/index.js
@@ -319,7 +327,7 @@ const { initializeDb } = require('./config/db');
 initializeDb();
 ```
 
-The `initializeDb()` function uses `CREATE TABLE IF NOT EXISTS`, making it safe to run repeatedly without data loss.
+The `initializeDb()` function creates indexes with `createIndex()`, which is idempotent and safe to run repeatedly.
 
 ---
 
@@ -327,17 +335,17 @@ The `initializeDb()` function uses `CREATE TABLE IF NOT EXISTS`, making it safe 
 
 ### Current Implementation
 
-1. **Connection Pooling**: Reuses connections, reducing overhead
-2. **JSON Storage**: Avoids complex JOINs, single-table queries
-3. **Composite Index**: Fast lookups by `(user_id, meme_id)`
+1. **Connection Reuse**: Single client connection reused across requests
+2. **Native Document Storage**: No JSON parsing needed, native object storage
+3. **Compound Indexes**: Fast lookups by `(userId, memeId)`
 4. **Optimistic Updates**: UI updates immediately, API call happens async
 
 ### Potential Optimizations
 
-1. **Pagination**: Currently fetches all likes at once; add LIMIT/OFFSET for large collections
+1. **Pagination**: Currently fetches all likes at once; add skip/limit for large collections
 2. **Caching**: Add Redis layer for frequently accessed user likes
-3. **Data Pruning**: Consider archiving very old likes or implementing soft delete
-4. **Read Replicas**: For high traffic, use MySQL read replicas
+3. **TTL Indexes**: Auto-expire old seen_memes records
+4. **Sharding**: For very high traffic, consider sharding by userId
 
 ---
 
@@ -345,14 +353,14 @@ The `initializeDb()` function uses `CREATE TABLE IF NOT EXISTS`, making it safe 
 
 ### Current Implementation
 
-- **Parameterized Queries**: All SQL uses parameterized queries to prevent SQL injection
-- **User Isolation**: Each user can only access their own likes (enforced by user_id in queries)
+- **MongoDB Driver Protection**: Native driver handles query escaping
+- **User Isolation**: Each user can only access their own likes (enforced by userId in queries)
 
 ### Recommendations
 
 1. **Rate Limiting**: Add rate limiting to prevent abuse (currently only on Reddit API calls)
 2. **Input Validation**: Validate meme data structure before storing
-3. **Data Size Limits**: Limit JSON payload size to prevent storage attacks
+3. **Data Size Limits**: Limit document size to prevent storage attacks
 4. **API Authentication**: Consider adding JWT/session validation for API endpoints
 
 ---
@@ -363,8 +371,9 @@ The implementation includes basic error handling:
 
 ```javascript
 try {
-  const likes = await query('SELECT ...', [userId]);
-  res.json(likes.map(l => l.meme_data));
+  const db = getDb();
+  const likes = await db.collection('likes').find({ userId }).toArray();
+  res.json(likes.map(l => l.memeData));
 } catch (error) {
   console.error('Error fetching likes:', error);
   res.status(500).json({ error: 'Failed to fetch likes' });
@@ -379,10 +388,10 @@ Frontend handles errors gracefully by falling back to localStorage or showing em
 
 | Aspect | Implementation |
 |--------|----------------|
-| **Database** | MySQL with `mysql2/promise` |
-| **Schema** | Single `likes` table with JSON storage |
+| **Database** | MongoDB Atlas with native `mongodb` driver |
+| **Schema** | Two collections: `likes` and `seen_memes` |
 | **Authentication** | Clerk user IDs |
 | **Data Stored** | Full meme objects for offline display |
 | **Sync Strategy** | Backend for auth users, localStorage for anonymous |
-| **Query Safety** | Parameterized queries |
-| **Initialization** | Auto-create table on startup |
+| **Query Safety** | Native MongoDB driver protection |
+| **Initialization** | Auto-create indexes on startup |

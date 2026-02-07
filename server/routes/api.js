@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
-const { query, rawQuery, getPoolStatus } = require('../config/db');
+const { getDb, getConnectionStatus } = require('../config/db');
 
 // In-memory cache for Reddit API responses
 const cache = new Map();
@@ -158,21 +158,21 @@ router.get('/health', (req, res) => {
 // Access at: /api/debug
 // This provides a full database connection test and diagnostic page
 router.get('/debug', async (req, res) => {
-  const poolStatus = getPoolStatus();
+  const connectionStatus = getConnectionStatus();
   const results = {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     database: {
+      type: 'MongoDB',
       connected: false,
-      host: process.env.DB_HOST || 'localhost',
-      name: process.env.DB_NAME || 'not set',
-      error: null,
-      pool: poolStatus
+      name: connectionStatus.databaseName,
+      uri: connectionStatus.uri,
+      error: null
     },
     tests: {
       connection: { passed: false, message: '', duration: 0 },
-      likesTableExists: { passed: false, message: '', duration: 0 },
-      seenMemesTableExists: { passed: false, message: '', duration: 0 },
+      likesCollectionExists: { passed: false, message: '', duration: 0 },
+      seenMemesCollectionExists: { passed: false, message: '', duration: 0 },
       writeTest: { passed: false, message: '', duration: 0 },
       readTest: { passed: false, message: '', duration: 0 },
       deleteTest: { passed: false, message: '', duration: 0 }
@@ -186,12 +186,14 @@ router.get('/debug', async (req, res) => {
 
   // Test 1: Database Connection
   let startTime = Date.now();
+  let db;
   try {
-    await query('SELECT 1 as test');
+    db = getDb();
+    await db.command({ ping: 1 });
     results.database.connected = true;
     results.tests.connection = {
       passed: true,
-      message: 'Successfully connected to MySQL database',
+      message: 'Successfully connected to MongoDB database',
       duration: Date.now() - startTime
     };
   } catch (error) {
@@ -204,37 +206,54 @@ router.get('/debug', async (req, res) => {
   }
 
   // Only continue if connection succeeded
-  if (results.database.connected) {
-    // Test 2: Check if likes table exists
+  if (results.database.connected && db) {
+    // Test 2: Check if likes collection exists
     startTime = Date.now();
     try {
-      await query('DESCRIBE likes');
-      results.tests.likesTableExists = {
-        passed: true,
-        message: 'likes table exists and is accessible',
-        duration: Date.now() - startTime
-      };
+      const collections = await db.listCollections({ name: 'likes' }).toArray();
+      if (collections.length > 0) {
+        results.tests.likesCollectionExists = {
+          passed: true,
+          message: 'likes collection exists and is accessible',
+          duration: Date.now() - startTime
+        };
+      } else {
+        // Collection doesn't exist yet but we can still use it (MongoDB creates on first write)
+        results.tests.likesCollectionExists = {
+          passed: true,
+          message: 'likes collection will be created on first write',
+          duration: Date.now() - startTime
+        };
+      }
     } catch (error) {
-      results.tests.likesTableExists = {
+      results.tests.likesCollectionExists = {
         passed: false,
-        message: `likes table check failed: ${error.message}`,
+        message: `likes collection check failed: ${error.message}`,
         duration: Date.now() - startTime
       };
     }
 
-    // Test 3: Check if seen_memes table exists
+    // Test 3: Check if seen_memes collection exists
     startTime = Date.now();
     try {
-      await query('DESCRIBE seen_memes');
-      results.tests.seenMemesTableExists = {
-        passed: true,
-        message: 'seen_memes table exists and is accessible',
-        duration: Date.now() - startTime
-      };
+      const collections = await db.listCollections({ name: 'seen_memes' }).toArray();
+      if (collections.length > 0) {
+        results.tests.seenMemesCollectionExists = {
+          passed: true,
+          message: 'seen_memes collection exists and is accessible',
+          duration: Date.now() - startTime
+        };
+      } else {
+        results.tests.seenMemesCollectionExists = {
+          passed: true,
+          message: 'seen_memes collection will be created on first write',
+          duration: Date.now() - startTime
+        };
+      }
     } catch (error) {
-      results.tests.seenMemesTableExists = {
+      results.tests.seenMemesCollectionExists = {
         passed: false,
-        message: `seen_memes table check failed: ${error.message}`,
+        message: `seen_memes collection check failed: ${error.message}`,
         duration: Date.now() - startTime
       };
     }
@@ -242,13 +261,15 @@ router.get('/debug', async (req, res) => {
     // Test 4: Write Test (insert a test record)
     const testUserId = '__debug_test_user__';
     const testMemeId = '__debug_test_meme__';
-    const testMemeData = JSON.stringify({ id: testMemeId, title: 'Debug Test Meme', timestamp: Date.now() });
+    const testMemeData = { id: testMemeId, title: 'Debug Test Meme', timestamp: Date.now() };
     
     startTime = Date.now();
     try {
-      await query(
-        'INSERT INTO likes (user_id, meme_id, meme_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE meme_data = VALUES(meme_data)',
-        [testUserId, testMemeId, testMemeData]
+      const likesCollection = db.collection('likes');
+      await likesCollection.updateOne(
+        { userId: testUserId, memeId: testMemeId },
+        { $set: { userId: testUserId, memeId: testMemeId, memeData: testMemeData, createdAt: new Date() } },
+        { upsert: true }
       );
       results.tests.writeTest = {
         passed: true,
@@ -266,8 +287,9 @@ router.get('/debug', async (req, res) => {
     // Test 5: Read Test (read the test record back)
     startTime = Date.now();
     try {
-      const rows = await query('SELECT * FROM likes WHERE user_id = ? AND meme_id = ?', [testUserId, testMemeId]);
-      if (rows.length > 0) {
+      const likesCollection = db.collection('likes');
+      const doc = await likesCollection.findOne({ userId: testUserId, memeId: testMemeId });
+      if (doc) {
         results.tests.readTest = {
           passed: true,
           message: 'Successfully read test record from database',
@@ -291,7 +313,8 @@ router.get('/debug', async (req, res) => {
     // Test 6: Delete Test (clean up test record)
     startTime = Date.now();
     try {
-      await query('DELETE FROM likes WHERE user_id = ? AND meme_id = ?', [testUserId, testMemeId]);
+      const likesCollection = db.collection('likes');
+      await likesCollection.deleteOne({ userId: testUserId, memeId: testMemeId });
       results.tests.deleteTest = {
         passed: true,
         message: 'Successfully deleted test record from database',
@@ -307,18 +330,19 @@ router.get('/debug', async (req, res) => {
 
     // Gather stats
     try {
-      const likesCount = await query('SELECT COUNT(*) as count FROM likes');
-      results.stats.totalLikes = likesCount[0]?.count || 0;
+      const likesCollection = db.collection('likes');
+      results.stats.totalLikes = await likesCollection.countDocuments();
     } catch (e) { /* ignore */ }
 
     try {
-      const seenCount = await query('SELECT COUNT(*) as count FROM seen_memes');
-      results.stats.totalSeenMemes = seenCount[0]?.count || 0;
+      const seenCollection = db.collection('seen_memes');
+      results.stats.totalSeenMemes = await seenCollection.countDocuments();
     } catch (e) { /* ignore */ }
 
     try {
-      const usersCount = await query('SELECT COUNT(DISTINCT user_id) as count FROM likes');
-      results.stats.uniqueUsers = usersCount[0]?.count || 0;
+      const likesCollection = db.collection('likes');
+      const uniqueUsers = await likesCollection.distinct('userId');
+      results.stats.uniqueUsers = uniqueUsers.length;
     } catch (e) { /* ignore */ }
   }
 
@@ -533,16 +557,16 @@ router.get('/likes/:userId', async (req, res) => {
   const { userId } = req.params;
   console.log('[Likes] Fetching likes for user:', userId);
   try {
-    const likes = await query('SELECT meme_data FROM likes WHERE user_id = ? ORDER BY created_at DESC', [userId]);
+    const db = getDb();
+    const likesCollection = db.collection('likes');
+    const likes = await likesCollection
+      .find({ userId })
+      .sort({ createdAt: -1 })
+      .toArray();
     console.log('[Likes] Found', likes.length, 'likes for user:', userId);
-    // Parse the meme_data JSON for each like
-    const parsedLikes = likes.map(l => {
-      if (typeof l.meme_data === 'string') {
-        return JSON.parse(l.meme_data);
-      }
-      return l.meme_data;
-    });
-    res.json(parsedLikes);
+    // Return just the meme data
+    const memeDataList = likes.map(l => l.memeData);
+    res.json(memeDataList);
   } catch (error) {
     console.error('[Likes] Error fetching likes:', error);
     res.status(500).json({ error: 'Failed to fetch likes' });
@@ -565,9 +589,19 @@ router.post('/likes', async (req, res) => {
   }
   
   try {
-    await query(
-      'INSERT INTO likes (user_id, meme_id, meme_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE meme_data = VALUES(meme_data)',
-      [userId, memeId, JSON.stringify(meme)]
+    const db = getDb();
+    const likesCollection = db.collection('likes');
+    await likesCollection.updateOne(
+      { userId, memeId },
+      { 
+        $set: { 
+          userId, 
+          memeId, 
+          memeData: meme, 
+          createdAt: new Date() 
+        } 
+      },
+      { upsert: true }
     );
     console.log('[Likes] Successfully saved like for user:', userId, 'meme:', memeId);
     res.json({ success: true });
@@ -581,7 +615,9 @@ router.delete('/likes/:userId/:memeId', async (req, res) => {
   const { userId, memeId } = req.params;
   console.log('[Likes] Deleting like for user:', userId, 'meme:', memeId);
   try {
-    const result = await query('DELETE FROM likes WHERE user_id = ? AND meme_id = ?', [userId, memeId]);
+    const db = getDb();
+    const likesCollection = db.collection('likes');
+    const result = await likesCollection.deleteOne({ userId, memeId });
     console.log('[Likes] Delete result:', result);
     res.json({ success: true });
   } catch (error) {
@@ -596,11 +632,12 @@ router.delete('/likes/:userId/:memeId', async (req, res) => {
 router.get('/seen/:userId/:feedKey', async (req, res) => {
   const { userId, feedKey } = req.params;
   try {
-    const rows = await query(
-      'SELECT meme_id FROM seen_memes WHERE user_id = ? AND feed_key = ?',
-      [userId, feedKey]
-    );
-    const ids = rows.map(r => r.meme_id);
+    const db = getDb();
+    const seenCollection = db.collection('seen_memes');
+    const docs = await seenCollection
+      .find({ userId, feedKey })
+      .toArray();
+    const ids = docs.map(d => d.memeId);
     res.json(ids);
   } catch (error) {
     console.error('[Seen] Error fetching seen memes:', error);
@@ -615,13 +652,19 @@ router.post('/seen', async (req, res) => {
     return res.status(400).json({ error: 'userId, feedKey, and memeIds[] are required' });
   }
   try {
-    // Use INSERT IGNORE to skip duplicates — use rawQuery for dynamic placeholders
-    const placeholders = memeIds.map(() => '(?, ?, ?)').join(', ');
-    const values = memeIds.flatMap(id => [userId, feedKey, id]);
-    await rawQuery(
-      `INSERT IGNORE INTO seen_memes (user_id, feed_key, meme_id) VALUES ${placeholders}`,
-      values
-    );
+    const db = getDb();
+    const seenCollection = db.collection('seen_memes');
+    
+    // Use bulkWrite with upsert to handle duplicates gracefully
+    const operations = memeIds.map(memeId => ({
+      updateOne: {
+        filter: { userId, feedKey, memeId },
+        update: { $setOnInsert: { userId, feedKey, memeId, createdAt: new Date() } },
+        upsert: true
+      }
+    }));
+    
+    await seenCollection.bulkWrite(operations, { ordered: false });
     res.json({ success: true });
   } catch (error) {
     console.error('[Seen] Error saving seen memes:', error);
