@@ -283,11 +283,16 @@ function TikTokFeed({ subreddit, username }) {
         const feedKey = storageKey;
         const response = await fetch(`/api/seen/${user.id}/${encodeURIComponent(feedKey)}`);
         if (response.ok) {
-          const backendIds = await response.json();
-          const dbSet = new Set(backendIds);
-          seenIdsRef.current = dbSet;
-          setSeenIds(dbSet);
-          return;
+          const contentType = response.headers.get('content-type') || '';
+          if (!contentType.includes('application/json')) {
+            console.warn('Seen memes endpoint returned non-JSON response');
+          } else {
+            const backendIds = await response.json();
+            const dbSet = new Set(backendIds);
+            seenIdsRef.current = dbSet;
+            setSeenIds(dbSet);
+            return;
+          }
         }
       } catch (error) {
         console.error('Failed to load seen memes from database:', error);

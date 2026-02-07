@@ -24,12 +24,13 @@ export function LikesProvider({ children }) {
           // Database is the single source of truth for signed-in users
           console.log('Fetching likes from database for user:', user.id);
           const response = await fetch(`/api/likes/${user.id}`);
-          if (response.ok) {
+          const contentType = response.headers.get('content-type') || '';
+          if (response.ok && contentType.includes('application/json')) {
             const backendLikes = await response.json();
             console.log('Loaded likes from database:', backendLikes.length);
             setLikes(backendLikes);
           } else {
-            console.error('Failed to fetch likes from database, status:', response.status);
+            console.error('Failed to fetch likes from database, status:', response.status, 'content-type:', contentType);
             setLikes([]);
           }
         } else {

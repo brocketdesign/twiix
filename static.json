@@ -1,6 +1,11 @@
 {
   "root": "build/",
   "routes": {
+    "/api/**": {
+      "proxy": {
+        "origin": "${API_URL}"
+      }
+    },
     "/**": "index.html"
   },
   "https_only": true,
