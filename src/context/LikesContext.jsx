@@ -8,12 +8,15 @@ export function useLikes() {
 }
 
 export function LikesProvider({ children }) {
-  const { user, isSignedIn } = useUser();
+  const { user, isSignedIn, isLoaded } = useUser();
   const [likes, setLikes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Load likes: from database for signed-in users, localStorage for anonymous
   useEffect(() => {
+    // Don't do anything until Clerk has finished loading auth state
+    if (!isLoaded) return;
+
     const loadLikes = async () => {
       setIsLoading(true);
       try {
@@ -52,18 +55,19 @@ export function LikesProvider({ children }) {
     };
 
     loadLikes();
-  }, [isSignedIn, user]);
+  }, [isLoaded, isSignedIn, user]);
 
   // Save to localStorage ONLY for anonymous users
   useEffect(() => {
-    if (!isLoading && !isSignedIn) {
+    if (!isLoaded || isLoading) return;
+    if (!isSignedIn) {
       try {
         localStorage.setItem('likes_anonymous', JSON.stringify(likes));
       } catch (error) {
         console.error('Error saving likes to localStorage:', error);
       }
     }
-  }, [likes, isLoading, isSignedIn]);
+  }, [likes, isLoaded, isLoading, isSignedIn]);
 
   // Add a like
   const addLike = useCallback(async (meme) => {
