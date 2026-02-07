@@ -23,7 +23,7 @@ export function LikesProvider({ children }) {
         if (isSignedIn && user) {
           // Database is the single source of truth for signed-in users
           console.log('Fetching likes from database for user:', user.id);
-          const response = await fetch(`/api/likes/${user.id}`);
+          const response = await fetch(`/api/likes?userId=${encodeURIComponent(user.id)}`);
           const contentType = response.headers.get('content-type') || '';
           if (response.ok && contentType.includes('application/json')) {
             const backendLikes = await response.json();
@@ -137,7 +137,7 @@ export function LikesProvider({ children }) {
     if (isSignedIn && user) {
       try {
         console.log('Removing like from backend for user:', user.id, 'meme:', memeId);
-        const response = await fetch(`/api/likes/${user.id}/${memeId}`, {
+        const response = await fetch(`/api/likes?userId=${encodeURIComponent(user.id)}&memeId=${encodeURIComponent(memeId)}`, {
           method: 'DELETE',
         });
         if (!response.ok) {

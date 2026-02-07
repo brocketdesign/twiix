@@ -120,16 +120,22 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
   useEffect(() => {
     if (isVisible && !isLoading && !videoUrl && !error) {
       setIsLoading(true);
-      const serverUrl = 'http://localhost:3001';
-      const url = `${serverUrl}/api/redgifs/${gifId}`;
+      const url = `/api/redgifs?id=${encodeURIComponent(gifId)}`;
 
-      // Check if the endpoint is available
-      fetch(`${url}`, { method: 'HEAD' })
+      fetch(url)
         .then(response => {
           if (!response.ok) {
             throw new Error(`Server responded with status: ${response.status}`);
           }
-          setVideoUrl(url);
+          return response.json();
+        })
+        .then(data => {
+          const hdUrl = data?.gif?.urls?.hd || data?.gif?.urls?.sd;
+          if (hdUrl) {
+            setVideoUrl(hdUrl);
+          } else {
+            throw new Error('No video URL found in RedGifs response');
+          }
         })
         .catch(err => {
           console.error('Error fetching RedGifs:', err);

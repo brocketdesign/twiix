@@ -132,16 +132,22 @@ const LazyRedGif = React.memo(({ gifId, thumbnailUrl, memeId }) => {
       // Let's revert to the localhost check but handle failure better, or just disable it if the user wants no proxy.
       
       // Reverting to original behavior but with better error handling
-      const serverUrl = 'http://localhost:3001';
-      const url = `${serverUrl}/api/redgifs/${gifId}`;
+      const url = `/api/redgifs?id=${encodeURIComponent(gifId)}`;
 
-      // Check if the endpoint is available
-      fetch(`${url}`, { method: 'HEAD' })
+      fetch(url)
         .then(response => {
           if (!response.ok) {
             throw new Error(`Server responded with status: ${response.status}`);
           }
-          setVideoUrl(url);
+          return response.json();
+        })
+        .then(data => {
+          const hdUrl = data?.gif?.urls?.hd || data?.gif?.urls?.sd;
+          if (hdUrl) {
+            setVideoUrl(hdUrl);
+          } else {
+            throw new Error('No video URL found in RedGifs response');
+          }
         })
         .catch(err => {
           console.error('Error fetching RedGifs:', err);
@@ -361,7 +367,7 @@ function MemeGallery({ subreddit = 'memes' }) {
     if (isSignedIn && user) {
       try {
         const feedKey = storageKey;
-        const response = await fetch(`/api/seen/${user.id}/${encodeURIComponent(feedKey)}`);
+        const response = await fetch(`/api/seen?userId=${encodeURIComponent(user.id)}&feedKey=${encodeURIComponent(feedKey)}`);
         if (response.ok) {
           const backendIds = await response.json();
           const dbSet = new Set(backendIds);
