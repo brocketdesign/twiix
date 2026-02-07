@@ -135,6 +135,56 @@ const pool = mysql.createPool({
 
 The database is accessed through REST API endpoints defined in [server/routes/api.js](../server/routes/api.js):
 
+### GET `/api/debug`
+
+**Debug endpoint for verifying database connectivity and operations.**
+
+Access this endpoint in your browser to get a visual diagnostic page showing:
+- Database connection status
+- Table existence verification
+- Write/Read/Delete operation tests
+- Database statistics (total likes, seen memes, unique users)
+- Connection pool status
+
+**URL:** `https://your-domain.com/api/debug`
+
+**Query Parameters:**
+- `format=json` - Returns raw JSON instead of HTML page
+
+**Example Response (JSON format):**
+```json
+{
+  "timestamp": "2026-02-07T12:00:00.000Z",
+  "environment": "production",
+  "database": {
+    "connected": true,
+    "host": "your-db-host",
+    "name": "your-db-name",
+    "error": null,
+    "pool": {
+      "totalConnections": 10,
+      "freeConnections": 8,
+      "connectionLimit": 10
+    }
+  },
+  "tests": {
+    "connection": { "passed": true, "message": "...", "duration": 5 },
+    "likesTableExists": { "passed": true, "message": "...", "duration": 3 },
+    "seenMemesTableExists": { "passed": true, "message": "...", "duration": 2 },
+    "writeTest": { "passed": true, "message": "...", "duration": 10 },
+    "readTest": { "passed": true, "message": "...", "duration": 4 },
+    "deleteTest": { "passed": true, "message": "...", "duration": 3 }
+  },
+  "stats": {
+    "totalLikes": 150,
+    "totalSeenMemes": 5000,
+    "uniqueUsers": 25
+  }
+}
+```
+
+---
+
 ### GET `/api/likes/:userId`
 
 Retrieves all likes for a specific user.

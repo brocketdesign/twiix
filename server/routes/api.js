@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
-const { query, rawQuery } = require('../config/db');
+const { query, rawQuery, getPoolStatus } = require('../config/db');
 
 // In-memory cache for Reddit API responses
 const cache = new Map();
@@ -152,6 +152,380 @@ router.get('/redgifs/:id', async (req, res) => {
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// ====== DEBUG ENDPOINT ======
+// Access at: /api/debug
+// This provides a full database connection test and diagnostic page
+router.get('/debug', async (req, res) => {
+  const poolStatus = getPoolStatus();
+  const results = {
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    database: {
+      connected: false,
+      host: process.env.DB_HOST || 'localhost',
+      name: process.env.DB_NAME || 'not set',
+      error: null,
+      pool: poolStatus
+    },
+    tests: {
+      connection: { passed: false, message: '', duration: 0 },
+      likesTableExists: { passed: false, message: '', duration: 0 },
+      seenMemesTableExists: { passed: false, message: '', duration: 0 },
+      writeTest: { passed: false, message: '', duration: 0 },
+      readTest: { passed: false, message: '', duration: 0 },
+      deleteTest: { passed: false, message: '', duration: 0 }
+    },
+    stats: {
+      totalLikes: 0,
+      totalSeenMemes: 0,
+      uniqueUsers: 0
+    }
+  };
+
+  // Test 1: Database Connection
+  let startTime = Date.now();
+  try {
+    await query('SELECT 1 as test');
+    results.database.connected = true;
+    results.tests.connection = {
+      passed: true,
+      message: 'Successfully connected to MySQL database',
+      duration: Date.now() - startTime
+    };
+  } catch (error) {
+    results.database.error = error.message;
+    results.tests.connection = {
+      passed: false,
+      message: `Connection failed: ${error.message}`,
+      duration: Date.now() - startTime
+    };
+  }
+
+  // Only continue if connection succeeded
+  if (results.database.connected) {
+    // Test 2: Check if likes table exists
+    startTime = Date.now();
+    try {
+      await query('DESCRIBE likes');
+      results.tests.likesTableExists = {
+        passed: true,
+        message: 'likes table exists and is accessible',
+        duration: Date.now() - startTime
+      };
+    } catch (error) {
+      results.tests.likesTableExists = {
+        passed: false,
+        message: `likes table check failed: ${error.message}`,
+        duration: Date.now() - startTime
+      };
+    }
+
+    // Test 3: Check if seen_memes table exists
+    startTime = Date.now();
+    try {
+      await query('DESCRIBE seen_memes');
+      results.tests.seenMemesTableExists = {
+        passed: true,
+        message: 'seen_memes table exists and is accessible',
+        duration: Date.now() - startTime
+      };
+    } catch (error) {
+      results.tests.seenMemesTableExists = {
+        passed: false,
+        message: `seen_memes table check failed: ${error.message}`,
+        duration: Date.now() - startTime
+      };
+    }
+
+    // Test 4: Write Test (insert a test record)
+    const testUserId = '__debug_test_user__';
+    const testMemeId = '__debug_test_meme__';
+    const testMemeData = JSON.stringify({ id: testMemeId, title: 'Debug Test Meme', timestamp: Date.now() });
+    
+    startTime = Date.now();
+    try {
+      await query(
+        'INSERT INTO likes (user_id, meme_id, meme_data) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE meme_data = VALUES(meme_data)',
+        [testUserId, testMemeId, testMemeData]
+      );
+      results.tests.writeTest = {
+        passed: true,
+        message: 'Successfully wrote test record to database',
+        duration: Date.now() - startTime
+      };
+    } catch (error) {
+      results.tests.writeTest = {
+        passed: false,
+        message: `Write test failed: ${error.message}`,
+        duration: Date.now() - startTime
+      };
+    }
+
+    // Test 5: Read Test (read the test record back)
+    startTime = Date.now();
+    try {
+      const rows = await query('SELECT * FROM likes WHERE user_id = ? AND meme_id = ?', [testUserId, testMemeId]);
+      if (rows.length > 0) {
+        results.tests.readTest = {
+          passed: true,
+          message: 'Successfully read test record from database',
+          duration: Date.now() - startTime
+        };
+      } else {
+        results.tests.readTest = {
+          passed: false,
+          message: 'Read test failed: record not found after write',
+          duration: Date.now() - startTime
+        };
+      }
+    } catch (error) {
+      results.tests.readTest = {
+        passed: false,
+        message: `Read test failed: ${error.message}`,
+        duration: Date.now() - startTime
+      };
+    }
+
+    // Test 6: Delete Test (clean up test record)
+    startTime = Date.now();
+    try {
+      await query('DELETE FROM likes WHERE user_id = ? AND meme_id = ?', [testUserId, testMemeId]);
+      results.tests.deleteTest = {
+        passed: true,
+        message: 'Successfully deleted test record from database',
+        duration: Date.now() - startTime
+      };
+    } catch (error) {
+      results.tests.deleteTest = {
+        passed: false,
+        message: `Delete test failed: ${error.message}`,
+        duration: Date.now() - startTime
+      };
+    }
+
+    // Gather stats
+    try {
+      const likesCount = await query('SELECT COUNT(*) as count FROM likes');
+      results.stats.totalLikes = likesCount[0]?.count || 0;
+    } catch (e) { /* ignore */ }
+
+    try {
+      const seenCount = await query('SELECT COUNT(*) as count FROM seen_memes');
+      results.stats.totalSeenMemes = seenCount[0]?.count || 0;
+    } catch (e) { /* ignore */ }
+
+    try {
+      const usersCount = await query('SELECT COUNT(DISTINCT user_id) as count FROM likes');
+      results.stats.uniqueUsers = usersCount[0]?.count || 0;
+    } catch (e) { /* ignore */ }
+  }
+
+  // Calculate overall status
+  const allTestsPassed = Object.values(results.tests).every(t => t.passed);
+  
+  // Return HTML page for easy viewing
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Database Debug - Reddit Meme Gallery</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { 
+      text-align: center; 
+      margin-bottom: 30px;
+      color: #ff6b35;
+    }
+    .status-banner {
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 1.5em;
+      font-weight: bold;
+    }
+    .status-success { background: #1b5e20; color: #a5d6a7; }
+    .status-error { background: #b71c1c; color: #ef9a9a; }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .card h2 {
+      color: #64b5f6;
+      margin-bottom: 15px;
+      font-size: 1.2em;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding-bottom: 10px;
+    }
+    .test-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .test-item:last-child { border-bottom: none; }
+    .test-name { font-weight: 500; }
+    .test-result {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.85em;
+      font-weight: 600;
+    }
+    .badge-pass { background: #2e7d32; color: #a5d6a7; }
+    .badge-fail { background: #c62828; color: #ef9a9a; }
+    .duration { color: #888; font-size: 0.85em; }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+    .info-item {
+      background: rgba(0,0,0,0.2);
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .info-item .label { color: #888; font-size: 0.85em; margin-bottom: 5px; }
+    .info-item .value { font-size: 1.5em; font-weight: bold; color: #ff6b35; }
+    .json-toggle {
+      background: #ff6b35;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 1em;
+      margin-top: 20px;
+    }
+    .json-toggle:hover { background: #ff8c5a; }
+    .json-output {
+      display: none;
+      background: #0d1117;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+      overflow-x: auto;
+      font-family: monospace;
+      font-size: 0.9em;
+      white-space: pre-wrap;
+      color: #c9d1d9;
+    }
+    .json-output.show { display: block; }
+    .timestamp { text-align: center; color: #666; margin-top: 20px; font-size: 0.85em; }
+    .message { color: #888; font-size: 0.85em; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 Database Debug Panel</h1>
+    
+    <div class="status-banner ${allTestsPassed ? 'status-success' : 'status-error'}">
+      ${allTestsPassed ? '✅ All Systems Operational' : '❌ Some Tests Failed'}
+    </div>
+
+    <div class="card">
+      <h2>📊 Database Information</h2>
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="label">Environment</div>
+          <div class="value">${results.environment}</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Host</div>
+          <div class="value" style="font-size: 0.9em; word-break: break-all;">${results.database.host}</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Database</div>
+          <div class="value" style="font-size: 0.9em;">${results.database.name}</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Connected</div>
+          <div class="value">${results.database.connected ? '✅' : '❌'}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🧪 Connection & Table Tests</h2>
+      ${Object.entries(results.tests).map(([name, test]) => `
+        <div class="test-item">
+          <div>
+            <div class="test-name">${name.replace(/([A-Z])/g, ' $1').trim()}</div>
+            <div class="message">${test.message}</div>
+          </div>
+          <div class="test-result">
+            <span class="duration">${test.duration}ms</span>
+            <span class="badge ${test.passed ? 'badge-pass' : 'badge-fail'}">
+              ${test.passed ? 'PASS' : 'FAIL'}
+            </span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="card">
+      <h2>📈 Database Statistics</h2>
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="label">Total Likes</div>
+          <div class="value">${results.stats.totalLikes}</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Seen Memes</div>
+          <div class="value">${results.stats.totalSeenMemes}</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Unique Users</div>
+          <div class="value">${results.stats.uniqueUsers}</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="json-toggle" onclick="toggleJson()">Show Raw JSON</button>
+    <pre class="json-output" id="jsonOutput">${JSON.stringify(results, null, 2)}</pre>
+    
+    <p class="timestamp">Generated at: ${results.timestamp}</p>
+  </div>
+  
+  <script>
+    function toggleJson() {
+      const output = document.getElementById('jsonOutput');
+      const btn = document.querySelector('.json-toggle');
+      output.classList.toggle('show');
+      btn.textContent = output.classList.contains('show') ? 'Hide Raw JSON' : 'Show Raw JSON';
+    }
+  </script>
+</body>
+</html>
+  `;
+
+  // Check if JSON format is requested
+  if (req.query.format === 'json') {
+    return res.json(results);
+  }
+
+  res.send(html);
 });
 
 // Likes endpoints

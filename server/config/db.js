@@ -48,6 +48,15 @@ async function rawQuery(sql, params) {
   }
 }
 
+// Get pool status for debugging
+function getPoolStatus() {
+  return {
+    totalConnections: pool.pool?._allConnections?.length || 'N/A',
+    freeConnections: pool.pool?._freeConnections?.length || 'N/A',
+    connectionLimit: pool.pool?.config?.connectionLimit || 10
+  };
+}
+
 // Function to initialize the database tables
 async function initializeDb() {
   try {
@@ -85,5 +94,6 @@ module.exports = {
   query,
   rawQuery,
   pool,
-  initializeDb
+  initializeDb,
+  getPoolStatus
 };
