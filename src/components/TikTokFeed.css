@@ -539,3 +539,60 @@
 .tiktok-feed-container * {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Swipe right hint (non-gallery content) */
+.tiktok-swipe-hint-right {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px 10px 14px;
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.5));
+  border-radius: 20px 0 0 20px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  animation: pulseRight 2.5s ease-in-out infinite;
+}
+
+.tiktok-swipe-hint-right:hover {
+  color: #fff;
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.7));
+  padding-right: 12px;
+}
+
+.tiktok-swipe-hint-text {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@keyframes pulseRight {
+  0%, 100% { transform: translateY(-50%) translateX(0); opacity: 0.5; }
+  50% { transform: translateY(-50%) translateX(3px); opacity: 0.9; }
+}
+
+/* Gallery nav user link button (last image) */
+.tiktok-gallery-nav-user {
+  background: rgba(59, 130, 246, 0.6);
+  width: auto;
+  border-radius: 22px;
+  padding: 0 14px;
+  gap: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.tiktok-gallery-nav-user:hover {
+  background: rgba(59, 130, 246, 0.8);
+}
+
+.tiktok-gallery-nav-user-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}

@@ -9,11 +9,13 @@ import { TbDownload, TbPhoto, TbVideo, TbLayoutGrid, TbChevronLeft, TbChevronRig
 import './TikTokFeed.css';
 
 // Horizontal swipeable gallery for posts with multiple images
-const GallerySwiper = ({ galleryData, mediaMetadata }) => {
+const GallerySwiper = ({ galleryData, mediaMetadata, onSwipePastEnd, authorName }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
   const containerRef = useRef(null);
+  const galleryScrollingRef = useRef(false);
+  const galleryScrollTimeoutRef = useRef(null);
 
   const minSwipeDistance = 50;
 
@@ -57,8 +59,12 @@ const GallerySwiper = ({ galleryData, mediaMetadata }) => {
     const isLeftSwipe = distance > minSwipeDistance;
     const isRightSwipe = distance < -minSwipeDistance;
     
-    if (isLeftSwipe && currentIndex < images.length - 1) {
-      setCurrentIndex(prev => prev + 1);
+    if (isLeftSwipe) {
+      if (currentIndex < images.length - 1) {
+        setCurrentIndex(prev => prev + 1);
+      } else if (onSwipePastEnd) {
+        onSwipePastEnd();
+      }
     }
     if (isRightSwipe && currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
@@ -76,6 +82,45 @@ const GallerySwiper = ({ galleryData, mediaMetadata }) => {
       setCurrentIndex(prev => prev - 1);
     }
   };
+
+  // Handle mouse wheel for horizontal scrolling (desktop)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const handleWheel = (e) => {
+      if (galleryScrollingRef.current) return;
+      
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      
+      if (absX > absY && absX > 30) {
+        e.stopPropagation();
+        galleryScrollingRef.current = true;
+        
+        if (e.deltaX > 0) {
+          if (currentIndex < images.length - 1) {
+            setCurrentIndex(prev => prev + 1);
+          } else if (onSwipePastEnd) {
+            onSwipePastEnd();
+          }
+        } else {
+          if (currentIndex > 0) {
+            setCurrentIndex(prev => prev - 1);
+          }
+        }
+        
+        if (galleryScrollTimeoutRef.current) clearTimeout(galleryScrollTimeoutRef.current);
+        galleryScrollTimeoutRef.current = setTimeout(() => { galleryScrollingRef.current = false; }, 400);
+      }
+    };
+    
+    container.addEventListener('wheel', handleWheel, { passive: true });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      if (galleryScrollTimeoutRef.current) clearTimeout(galleryScrollTimeoutRef.current);
+    };
+  }, [currentIndex, images.length, onSwipePastEnd]);
 
   if (images.length === 0) {
     return <div className="tiktok-media-error">Gallery images not available</div>;
@@ -112,9 +157,14 @@ const GallerySwiper = ({ galleryData, mediaMetadata }) => {
               <TbChevronLeft size={28} />
             </button>
           )}
-          {currentIndex < images.length - 1 && (
+          {currentIndex < images.length - 1 ? (
             <button onClick={goToNext} className="tiktok-gallery-nav tiktok-gallery-nav-next">
               <TbChevronRight size={28} />
+            </button>
+          ) : onSwipePastEnd && (
+            <button onClick={onSwipePastEnd} className="tiktok-gallery-nav tiktok-gallery-nav-next tiktok-gallery-nav-user">
+              <TbChevronRight size={28} />
+              {authorName && <span className="tiktok-gallery-nav-user-label">u/{authorName}</span>}
             </button>
           )}
         </>
@@ -254,6 +304,8 @@ function TikTokFeed({ subreddit, username }) {
   const [hasMore, setHasMore] = useState(true);
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
+  const [hTouchStart, setHTouchStart] = useState(null);
+  const [hTouchEnd, setHTouchEnd] = useState(null);
   const [isScrolling, setIsScrolling] = useState(false);
   const [seenIds, setSeenIds] = useState(new Set());
   const seenIdsRef = useRef(new Set());
@@ -481,22 +533,45 @@ function TikTokFeed({ subreddit, username }) {
     };
   }, [isSignedIn, user, getSeenStorageKey]);
 
-  // Handle vertical swipe
+  // Handle swipe (vertical for feed navigation, horizontal for user profile)
   const onTouchStart = (e) => {
     setTouchEnd(null);
     setTouchStart(e.targetTouches[0].clientY);
+    setHTouchEnd(null);
+    setHTouchStart(e.targetTouches[0].clientX);
   };
 
   const onTouchMove = (e) => {
     setTouchEnd(e.targetTouches[0].clientY);
+    setHTouchEnd(e.targetTouches[0].clientX);
   };
 
   const onTouchEnd = () => {
     if (!touchStart || !touchEnd) return;
     
-    const distance = touchStart - touchEnd;
-    const isUpSwipe = distance > minSwipeDistance;
-    const isDownSwipe = distance < -minSwipeDistance;
+    const vDist = touchStart - touchEnd;
+    const hDist = (hTouchStart || 0) - (hTouchEnd || 0);
+    const absV = Math.abs(vDist);
+    const absH = Math.abs(hDist);
+    
+    // Horizontal swipe is dominant — navigate to user profile for non-gallery content
+    if (hTouchStart !== null && hTouchEnd !== null && absH > absV && absH > minSwipeDistance) {
+      const currentMemeData = memes[currentIndex]?.data;
+      if (currentMemeData) {
+        const mediaType = getMediaType(currentMemeData);
+        if (mediaType !== 'gallery') {
+          const isLeftSwipe = hDist > minSwipeDistance; // finger moved left = content scrolls right
+          if (isLeftSwipe && currentMemeData.author) {
+            navigate(`/u/${currentMemeData.author}`);
+          }
+        }
+      }
+      return;
+    }
+    
+    // Vertical swipe
+    const isUpSwipe = vDist > minSwipeDistance;
+    const isDownSwipe = vDist < -minSwipeDistance;
     
     if (isUpSwipe && currentIndex < memes.length - 1) {
       setCurrentIndex(prev => prev + 1);
@@ -529,6 +604,25 @@ function TikTokFeed({ subreddit, username }) {
     const handleWheel = (e) => {
       if (isScrolling) return;
       
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      
+      // Horizontal scroll — navigate to user profile for non-gallery content
+      if (absX > absY && absX > 50) {
+        const currentMemeData = memes[currentIndex]?.data;
+        if (currentMemeData) {
+          const mediaType = getMediaType(currentMemeData);
+          if (mediaType !== 'gallery' && e.deltaX > 0 && currentMemeData.author) {
+            setIsScrolling(true);
+            navigate(`/u/${currentMemeData.author}`);
+            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+            scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 400);
+          }
+        }
+        return;
+      }
+      
+      // Vertical scroll
       if (e.deltaY > 50 && currentIndex < memes.length - 1) {
         setIsScrolling(true);
         setCurrentIndex(prev => prev + 1);
@@ -617,6 +711,8 @@ function TikTokFeed({ subreddit, username }) {
         <GallerySwiper 
           galleryData={data.gallery_data}
           mediaMetadata={data.media_metadata}
+          onSwipePastEnd={() => navigate(`/u/${data.author}`)}
+          authorName={data.author}
         />
       );
     }
@@ -818,6 +914,14 @@ function TikTokFeed({ subreddit, username }) {
           )}
         </div>
       </div>
+
+      {/* Swipe right hint (non-gallery content) */}
+      {mediaType !== 'gallery' && (
+        <div className="tiktok-swipe-hint-right" onClick={() => navigate(`/u/${currentMeme.data.author}`)}>
+          <span className="tiktok-swipe-hint-text">u/{currentMeme.data.author}</span>
+          <TbChevronRight size={18} />
+        </div>
+      )}
 
       {/* Progress indicator */}
       <div className="tiktok-progress">
