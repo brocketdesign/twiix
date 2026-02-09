@@ -9,7 +9,7 @@ import { TbDownload, TbPhoto, TbVideo, TbLayoutGrid, TbChevronLeft, TbChevronRig
 import './TikTokFeed.css';
 
 // Horizontal swipeable gallery for posts with multiple images
-const GallerySwiper = ({ galleryData, mediaMetadata, onSwipePastEnd, authorName }) => {
+const GallerySwiper = ({ galleryData, mediaMetadata, onSwipePastEnd, onSwipeBeforeStart, authorName, originSubreddit }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
@@ -66,8 +66,12 @@ const GallerySwiper = ({ galleryData, mediaMetadata, onSwipePastEnd, authorName 
         onSwipePastEnd();
       }
     }
-    if (isRightSwipe && currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1);
+    if (isRightSwipe) {
+      if (currentIndex > 0) {
+        setCurrentIndex(prev => prev - 1);
+      } else if (onSwipeBeforeStart) {
+        onSwipeBeforeStart();
+      }
     }
   };
 
@@ -107,6 +111,8 @@ const GallerySwiper = ({ galleryData, mediaMetadata, onSwipePastEnd, authorName 
         } else {
           if (currentIndex > 0) {
             setCurrentIndex(prev => prev - 1);
+          } else if (onSwipeBeforeStart) {
+            onSwipeBeforeStart();
           }
         }
         
@@ -120,7 +126,7 @@ const GallerySwiper = ({ galleryData, mediaMetadata, onSwipePastEnd, authorName 
       container.removeEventListener('wheel', handleWheel);
       if (galleryScrollTimeoutRef.current) clearTimeout(galleryScrollTimeoutRef.current);
     };
-  }, [currentIndex, images.length, onSwipePastEnd]);
+  }, [currentIndex, images.length, onSwipePastEnd, onSwipeBeforeStart]);
 
   if (images.length === 0) {
     return <div className="tiktok-media-error">Gallery images not available</div>;
@@ -152,8 +158,13 @@ const GallerySwiper = ({ galleryData, mediaMetadata, onSwipePastEnd, authorName 
       {/* Navigation arrows */}
       {images.length > 1 && (
         <>
-          {currentIndex > 0 && (
+          {currentIndex > 0 ? (
             <button onClick={goToPrev} className="tiktok-gallery-nav tiktok-gallery-nav-prev">
+              <TbChevronLeft size={28} />
+            </button>
+          ) : onSwipeBeforeStart && (
+            <button onClick={onSwipeBeforeStart} className="tiktok-gallery-nav tiktok-gallery-nav-prev tiktok-gallery-nav-user">
+              {originSubreddit && <span className="tiktok-gallery-nav-user-label">r/{originSubreddit}</span>}
               <TbChevronLeft size={28} />
             </button>
           )}
@@ -317,6 +328,33 @@ function TikTokFeed({ subreddit, username }) {
   const minSwipeDistance = 50;
   const navigate = useNavigate();
   const { user, isSignedIn } = useUser();
+
+  // Determine if we're on a user page and get the origin subreddit
+  const isUserPage = !!username;
+  const [originSubreddit, setOriginSubreddit] = useState(null);
+
+  useEffect(() => {
+    if (isUserPage) {
+      // Read origin subreddit from localStorage when on a user page
+      const stored = localStorage.getItem('twiix_origin_subreddit');
+      if (stored) setOriginSubreddit(stored);
+    } else if (subreddit) {
+      // Save current subreddit as origin when browsing a subreddit
+      localStorage.setItem('twiix_origin_subreddit', subreddit);
+    }
+  }, [isUserPage, subreddit, username]);
+
+  const navigateToOriginSubreddit = useCallback(() => {
+    if (originSubreddit) {
+      navigate(`/r/${originSubreddit}`);
+    }
+  }, [originSubreddit, navigate]);
+
+  const navigateToAuthor = useCallback((author) => {
+    if (author) {
+      navigate(`/u/${author}`);
+    }
+  }, [navigate]);
 
   const getSeenStorageKey = useCallback(() => {
     if (username) {
@@ -554,15 +592,18 @@ function TikTokFeed({ subreddit, username }) {
     const absV = Math.abs(vDist);
     const absH = Math.abs(hDist);
     
-    // Horizontal swipe is dominant — navigate to user profile for non-gallery content
+    // Horizontal swipe is dominant — navigate for non-gallery content
     if (hTouchStart !== null && hTouchEnd !== null && absH > absV && absH > minSwipeDistance) {
       const currentMemeData = memes[currentIndex]?.data;
       if (currentMemeData) {
         const mediaType = getMediaType(currentMemeData);
         if (mediaType !== 'gallery') {
           const isLeftSwipe = hDist > minSwipeDistance; // finger moved left = content scrolls right
-          if (isLeftSwipe && currentMemeData.author) {
-            navigate(`/u/${currentMemeData.author}`);
+          const isRightSwipe = hDist < -minSwipeDistance; // finger moved right = content scrolls left
+          if (isLeftSwipe && !isUserPage && currentMemeData.author) {
+            navigateToAuthor(currentMemeData.author);
+          } else if (isRightSwipe && isUserPage) {
+            navigateToOriginSubreddit();
           }
         }
       }
@@ -607,14 +648,18 @@ function TikTokFeed({ subreddit, username }) {
       const absX = Math.abs(e.deltaX);
       const absY = Math.abs(e.deltaY);
       
-      // Horizontal scroll — navigate to user profile for non-gallery content
+      // Horizontal scroll — navigate for non-gallery content
       if (absX > absY && absX > 50) {
         const currentMemeData = memes[currentIndex]?.data;
         if (currentMemeData) {
           const mediaType = getMediaType(currentMemeData);
-          if (mediaType !== 'gallery' && e.deltaX > 0 && currentMemeData.author) {
+          if (mediaType !== 'gallery') {
             setIsScrolling(true);
-            navigate(`/u/${currentMemeData.author}`);
+            if (e.deltaX > 0 && !isUserPage && currentMemeData.author) {
+              navigateToAuthor(currentMemeData.author);
+            } else if (e.deltaX < 0 && isUserPage) {
+              navigateToOriginSubreddit();
+            }
             if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
             scrollTimeoutRef.current = setTimeout(() => setIsScrolling(false), 400);
           }
@@ -711,8 +756,10 @@ function TikTokFeed({ subreddit, username }) {
         <GallerySwiper 
           galleryData={data.gallery_data}
           mediaMetadata={data.media_metadata}
-          onSwipePastEnd={() => navigate(`/u/${data.author}`)}
+          onSwipePastEnd={!isUserPage ? () => navigateToAuthor(data.author) : undefined}
+          onSwipeBeforeStart={isUserPage ? navigateToOriginSubreddit : undefined}
           authorName={data.author}
+          originSubreddit={originSubreddit}
         />
       );
     }
@@ -915,11 +962,19 @@ function TikTokFeed({ subreddit, username }) {
         </div>
       </div>
 
-      {/* Swipe right hint (non-gallery content) */}
-      {mediaType !== 'gallery' && (
-        <div className="tiktok-swipe-hint-right" onClick={() => navigate(`/u/${currentMeme.data.author}`)}>
+      {/* Swipe right hint — only on subreddit pages (non-gallery content) */}
+      {!isUserPage && mediaType !== 'gallery' && (
+        <div className="tiktok-swipe-hint-right" onClick={() => navigateToAuthor(currentMeme.data.author)}>
           <span className="tiktok-swipe-hint-text">u/{currentMeme.data.author}</span>
           <TbChevronRight size={18} />
+        </div>
+      )}
+
+      {/* Swipe left hint — only on user pages */}
+      {isUserPage && originSubreddit && (
+        <div className="tiktok-swipe-hint-left" onClick={navigateToOriginSubreddit}>
+          <TbChevronLeft size={18} />
+          <span className="tiktok-swipe-hint-text">r/{originSubreddit}</span>
         </div>
       )}
 
